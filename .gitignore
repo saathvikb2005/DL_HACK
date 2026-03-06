@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Environment files
+.env
+*.env.local
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Uploaded files
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# AI temp files
+ai-service/temp/*
+ai-service/models/*.pt
+ai-service/models/*.bin
+ai-service/datasets/*.csv
+ai-service/datasets/*.json
+
+# Logs
+*.log
+npm-debug.log*
