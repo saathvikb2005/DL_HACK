@@ -1,490 +1,516 @@
-# Team Phase-wise Development Plan
-## Intelligent Telecall Conversation Analysis System
+# Team Phase Execution Plan
 
-This document defines the **phase-wise responsibilities of each team member** to ensure efficient collaboration and parallel development.
+## Intelligent Telecall Conversation Analysis System (MERN + AI)
 
-Team Members:
+This document defines a **very detailed phase-wise development,
+collaboration, Git workflow, and integration strategy** for building the
+**Intelligent Telecall Conversation Analysis System**.
 
-- **Saathvik** — AI & Machine Learning Lead  
-- **Vijitha** — Backend Development Lead  
-- **Thushika** — Frontend Development Lead  
+The system analyzes telecall recordings to detect:
 
-Each phase contains **clearly defined tasks for each member**, allowing the team to work simultaneously and integrate modules smoothly.
+-   Speech transcription
+-   Sentiment
+-   Intent
+-   Suspicious conversation patterns
+-   Analytics insights
 
----
+The system will be built using a **MERN + AI architecture**:
 
-# Phase 1 — Research and System Design
+  Layer           Technology
+  --------------- ---------------------------------
+  Frontend        React.js
+  Backend         Node.js + Express
+  Database        MongoDB
+  AI Processing   Python (Whisper + Transformers)
+  Integration     REST APIs
+  Visualization   Chart.js / Recharts
 
-## Objective
-Define project architecture, technology stack, and implementation strategy.
+------------------------------------------------------------------------
 
-### Saathvik (AI Research)
+# Team Members
 
-Tasks:
-- Research speech-to-text models
-- Evaluate Whisper model for telecall transcription
-- Research sentiment analysis models
-- Research intent detection models
-- Study fraud/suspicious communication detection
+  Member     Role
+  ---------- --------------------------------
+  Saathvik   AI & Machine Learning Lead
+  Vijitha    Backend & API Development Lead
+  Thushika   Frontend & Visualization Lead
 
-Deliverables:
-- AI model selection
-- AI pipeline design
+------------------------------------------------------------------------
 
----
+# Repository Branch Strategy
 
-### Vijitha (Backend Architecture)
+Repository branches:
 
-Tasks:
-- Research backend frameworks
-- Select FastAPI for backend
-- Define API structure
-- Design database schema
-- Plan data processing workflow
+main -- production stable\
+development -- integrated testing\
+saathvik-ai -- AI development\
+vijitha-backend -- backend development\
+thushika-frontend -- frontend development
 
-Deliverables:
-- API design document
-- Backend architecture plan
+------------------------------------------------------------------------
 
----
+# Phase 0 --- Project Initialization
 
-### Thushika (Frontend Design)
+## Goal
 
-Tasks:
-- Research UI frameworks
-- Select Angular / React
-- Design UI wireframes
-- Define dashboard components
-- Plan transcript viewer interface
+Create the **entire repository structure, environments, and base
+infrastructure**.
 
-Deliverables:
-- UI design mockups
-- Component layout plan
+------------------------------------------------------------------------
 
----
-
-# Phase 2 — Dataset Collection and Preparation
-
-## Objective
-Collect datasets required for model development.
-
----
-
-### Saathvik (AI Data Preparation)
-
-Tasks:
-- Download speech datasets
-- Download sentiment datasets
-- Download fraud detection datasets
-- Clean and preprocess text data
-- Prepare labelled examples
-
-Deliverables:
-
-
-datasets/
-speech/
-sentiment/
-fraud/
-
-
----
-
-### Vijitha (Data Storage Setup)
-
-Tasks:
-- Setup database
-- Define tables for transcripts
-- Define schema for call records
-- Implement dataset storage structure
-
-Example schema:
-
-
-calls
-call_id
-audio_path
-transcript
-analysis_result
-timestamp
-
-
----
-
-### Thushika (Dataset Visualization)
-
-Tasks:
-- Create simple UI for viewing transcripts
-- Display sample dataset examples
-- Prepare test interface for model outputs
-
-Deliverables:
-- Dataset preview UI
-
----
-
-# Phase 3 — Speech Processing Module
-
-## Objective
-Convert telecall recordings into text transcripts.
-
----
-
-### Saathvik (Speech AI Development)
-
-Tasks:
-- Install Whisper model
-- Implement audio transcription
-- Test transcription accuracy
-- Process sample telecall recordings
-
-Example code:
-
-```python
-import whisper
-
-model = whisper.load_model("base")
-result = model.transcribe("call.wav")
-
-print(result["text"])
-
-Deliverables:
-
-Speech-to-text module
-
-Transcript generation pipeline
-
-Vijitha (API Integration)
+## Saathvik Responsibilities (AI Setup)
 
 Tasks:
 
-Create API endpoint for audio upload
-
-Store audio files
-
-Call transcription module
-
-Return transcript
-
-Example endpoint:
-
-POST /upload-audio
-POST /transcribe
-
-Deliverables:
-
-Audio processing API
-
-Thushika (Audio Upload Interface)
-
-Tasks:
-
-Build audio upload page
-
-Send audio files to backend
-
-Display transcript result
-
-Deliverables:
-
-Audio upload UI
-
-Transcript display page
-
-Phase 4 — NLP Analysis Module
-Objective
-
-Analyze conversation transcripts.
-
-Saathvik (NLP Models)
-
-Tasks:
-
-Implement sentiment analysis
-
-Implement intent classification
-
-Implement suspicious keyword detection
-
-Models:
-
-DistilBERT sentiment model
-
-BERT intent classifier
-
-Deliverables:
-
-NLP classification modules
-
-Vijitha (Analysis APIs)
-
-Tasks:
-
-Create API endpoint for analysis
-
-Connect NLP modules
-
-Store analysis results
-
-Example API:
-
-POST /analyze
-GET /results
-
-Deliverables:
-
-NLP analysis API
-
-Thushika (Transcript Highlighting)
-
-Tasks:
-
-Display conversation segments
-
-Highlight based on classification
-
-Color coding:
-
-Sentiment	Color
-Positive	Green
-Neutral	Yellow
-Negative	Red
-Suspicious	Purple
-
-Deliverables:
-
-Highlighted transcript viewer
-
-Phase 5 — Backend System Development
-Objective
-
-Develop complete backend infrastructure.
-
-Saathvik
-
-Tasks:
-
-Optimize AI model performance
-
-Build complete AI pipeline
-
-Connect speech + NLP models
-
-Deliverables:
-
-AI processing pipeline
-
-Vijitha
-
-Tasks:
-
-Implement FastAPI backend
-
-Manage database operations
-
-Handle request processing
-
-Implement result retrieval APIs
-
-Deliverables:
-
-Fully functional backend server
-
-Thushika
-
-Tasks:
-
-Implement API calls
-
-Connect frontend to backend
-
-Display analysis results
-
-Deliverables:
-
-Fully connected frontend
-
-Phase 6 — Analytics Dashboard
-Objective
-
-Provide system insights.
-
-Saathvik
-
-Tasks:
-
-Calculate sentiment statistics
-
-Detect suspicious conversation frequency
-
-Deliverables:
-
-Analysis metrics
-
-Vijitha
-
-Tasks:
-
-Provide analytics APIs
+1.  Create AI service directory
+
+```{=html}
+<!-- -->
+```
+    ai-service/
+       speech/
+       nlp/
+       models/
+       datasets/
+       utils/
+
+2.  Create Python virtual environment
+
+```{=html}
+<!-- -->
+```
+    python -m venv venv
+    source venv/bin/activate
+
+3.  Install AI dependencies
+
+```{=html}
+<!-- -->
+```
+    pip install torch transformers openai-whisper pandas numpy scikit-learn fastapi uvicorn
+
+4.  Create base AI server
 
 Example:
 
-GET /analytics
+``` python
+from fastapi import FastAPI
+app = FastAPI()
 
-Deliverables:
+@app.get("/ai-health")
+def health():
+    return {"status": "AI running"}
+```
 
-Analytics backend endpoints
+------------------------------------------------------------------------
 
-Thushika
+## Vijitha Responsibilities (Backend Setup)
+
+Create backend service.
+
+    backend/
+       controllers/
+       routes/
+       models/
+       services/
+       config/
+       server.js
+
+Install packages
+
+    npm init -y
+    npm install express mongoose multer cors axios dotenv
+
+Create server.js
+
+``` javascript
+const express = require("express")
+const app = express()
+
+app.get("/", (req,res)=>{
+ res.send("Backend running")
+})
+
+app.listen(5000)
+```
+
+------------------------------------------------------------------------
+
+## Thushika Responsibilities (Frontend Setup)
+
+Create React app
+
+    npx create-react-app frontend
+
+Folder structure
+
+    frontend/src/
+       components/
+       pages/
+       services/
+       hooks/
+
+Create initial pages
+
+-   Home
+-   Upload Page
+-   Dashboard Page
+
+------------------------------------------------------------------------
+
+## Phase 0 Integration
+
+Integration steps:
+
+1.  Pull latest code
+
+```{=html}
+<!-- -->
+```
+    git pull origin development
+
+2.  Merge branches
+
+```{=html}
+<!-- -->
+```
+    git checkout development
+    git merge saathvik-ai
+    git merge vijitha-backend
+    git merge thushika-frontend
+
+3.  Test:
+
+-   backend runs
+-   frontend loads
+-   ai service runs
+
+------------------------------------------------------------------------
+
+# Phase 1 --- Database & Dataset Preparation
+
+## Goal
+
+Prepare data infrastructure and datasets.
+
+------------------------------------------------------------------------
+
+## Saathvik
+
+Download datasets:
+
+Speech:
+
+-   Mozilla Common Voice
+
+Sentiment:
+
+-   GoEmotions
+-   Sentiment140
+
+Fraud:
+
+-   ScamCall dataset
+-   Jigsaw Toxic Comment dataset
+
+Create preprocessing scripts
+
+    ai-service/utils/data_cleaning.py
 
 Tasks:
 
-Build analytics dashboard
+-   remove noise
+-   normalize text
+-   create labeled examples
 
-Create visualizations
+------------------------------------------------------------------------
 
-Charts:
+## Vijitha
 
-Sentiment distribution
+Setup MongoDB.
 
-Suspicious interactions
+Install
 
-Call quality score
+    npm install mongoose
 
-Deliverables:
+Create schema
 
-Dashboard UI
+    CallSchema
+    {
+     audioUrl,
+     transcript,
+     analysis,
+     createdAt
+    }
 
-Phase 7 — System Integration
-Objective
+------------------------------------------------------------------------
 
-Integrate all modules.
+## Thushika
 
-Saathvik
+Create **dataset preview UI**
 
-Tasks:
+Components
 
-Ensure AI models work with backend
+    DatasetViewer.jsx
+    TranscriptSample.jsx
 
-Optimize inference speed
+------------------------------------------------------------------------
 
-Vijitha
+## Integration
 
-Tasks:
+Workflow
 
-Connect APIs with AI pipeline
+Dataset → MongoDB → API → React display
 
-Manage data flow
+------------------------------------------------------------------------
 
-Thushika
+# Phase 2 --- Speech to Text
 
-Tasks:
+## Goal
 
-Connect UI with APIs
+Convert audio calls into transcripts.
 
-Display results in real time
+------------------------------------------------------------------------
 
-Phase 8 — Testing and Evaluation
-Objective
+## Saathvik
 
-Validate system performance.
+Implement Whisper transcription
 
-Saathvik
+    ai-service/speech/transcriber.py
 
-Evaluate AI models:
+Example
 
-Word Error Rate (WER)
+``` python
+import whisper
+model = whisper.load_model("base")
 
-Sentiment accuracy
+def transcribe(audio):
+    result = model.transcribe(audio)
+    return result["text"]
+```
 
-Fraud detection accuracy
+------------------------------------------------------------------------
 
-Vijitha
+## Vijitha
 
-Test backend:
+Create endpoints
 
-API reliability
+    POST /api/upload
+    POST /api/transcribe
 
-Request handling
+Use multer
 
-Data storage
+``` javascript
+const multer = require("multer")
+```
 
-Thushika
+Call AI service via axios
 
-Test frontend:
+------------------------------------------------------------------------
 
-UI responsiveness
+## Thushika
 
-Dashboard functionality
+Create components
 
-Data visualization
+    AudioUpload.jsx
+    TranscriptViewer.jsx
 
-Phase 9 — Deployment
-Objective
+Upload audio → backend → transcript
 
-Deploy system for demonstration or production.
+------------------------------------------------------------------------
 
-Saathvik
+## Integration Test
 
-Deploy AI models.
+Flow
 
-Vijitha
+React Upload → Node API → Python AI → transcript → UI
 
-Deploy backend:
+------------------------------------------------------------------------
 
-Docker
+# Phase 3 --- NLP Analysis
 
-Cloud server
+## Goal
 
-Thushika
+Analyze transcripts.
 
-Deploy frontend:
+Modules
 
-Vercel
+-   Sentiment detection
+-   Intent detection
+-   Suspicious detection
 
-Netlify
+------------------------------------------------------------------------
 
-Collaboration Workflow
+## Saathvik
 
-Development workflow:
+Create NLP modules
 
-Saathvik → builds AI models
-        ↓
-Vijitha → integrates models into backend
-        ↓
-Thushika → connects frontend to backend
+    ai-service/nlp/
+       sentiment.py
+       intent.py
+       suspicious.py
 
-Weekly integration ensures all modules work together.
+Example
 
-Final Deliverables
+``` python
+from transformers import pipeline
+sentiment = pipeline("sentiment-analysis")
+```
 
-The completed system will provide:
+------------------------------------------------------------------------
 
-Telecall transcription
+## Vijitha
 
-Sentiment analysis
+Create endpoint
 
-Intent detection
+    POST /api/analyze
 
-Suspicious interaction alerts
+Pipeline
 
-Highlighted conversation viewer
+Transcript → AI → store results → MongoDB
 
-Analytics dashboard
+------------------------------------------------------------------------
 
+## Thushika
 
----
+Create transcript highlight UI
 
-✅ This document makes your project **much easier to collaborate on** because:
+Color scheme
 
-- Everyone knows **exact tasks per phase**
-- Work can happen **in parallel**
-- Integration points are clearly defined.
+Green -- Positive\
+Yellow -- Neutral\
+Red -- Negative\
+Purple -- Suspicious
 
----
+------------------------------------------------------------------------
 
-If you want, I can also create **one more powerful doc that will save your team huge time**:
+## Integration
 
-**`FULL_PROJECT_FOLDER_STRUCTURE.md`**
+Transcript → analyze API → result → React UI
 
-This will show the **exact repo structure (frontend + backend + AI modules + datasets)** so your t
+------------------------------------------------------------------------
+
+# Phase 4 --- Analytics Dashboard
+
+## Goal
+
+Provide insights.
+
+------------------------------------------------------------------------
+
+## Saathvik
+
+Compute metrics
+
+-   sentiment distribution
+-   suspicious call frequency
+
+------------------------------------------------------------------------
+
+## Vijitha
+
+Create analytics endpoint
+
+    GET /api/analytics
+
+Return
+
+    {
+     positiveCalls,
+     negativeCalls,
+     suspiciousCalls
+    }
+
+------------------------------------------------------------------------
+
+## Thushika
+
+Build dashboard
+
+Charts
+
+-   sentiment pie chart
+-   suspicious detection bar chart
+-   call activity graph
+
+Libraries
+
+    recharts
+    chart.js
+
+------------------------------------------------------------------------
+
+# Phase 5 --- System Optimization
+
+## Saathvik
+
+-   optimize model inference
+-   add batching
+
+## Vijitha
+
+-   optimize API performance
+-   add caching
+
+## Thushika
+
+-   improve UI responsiveness
+
+------------------------------------------------------------------------
+
+# Phase 6 --- Testing
+
+Testing levels
+
+AI
+
+-   transcription accuracy
+-   sentiment accuracy
+
+Backend
+
+-   API reliability
+
+Frontend
+
+-   UI flow
+
+------------------------------------------------------------------------
+
+# Phase 7 --- Deployment
+
+Backend
+
+-   Node server on cloud
+
+Frontend
+
+-   Vercel
+
+AI
+
+-   Python service on GPU instance
+
+Database
+
+-   MongoDB Atlas
+
+------------------------------------------------------------------------
+
+# Final System Pipeline
+
+Audio Upload ↓ Speech to Text ↓ Transcript ↓ NLP Analysis ↓ Suspicious
+Detection ↓ MongoDB Storage ↓ Dashboard Visualization
+
+------------------------------------------------------------------------
+
+# Final Deliverables
+
+The system will provide
+
+-   telecall transcription
+-   sentiment classification
+-   intent detection
+-   suspicious alerts
+-   highlighted transcripts
+-   analytics dashboard
