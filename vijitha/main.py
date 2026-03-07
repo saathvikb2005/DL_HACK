@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import random
+import os
+import sys
 from pathlib import Path
 from models import (
     LifestyleDiseaseInput, 
@@ -10,6 +12,13 @@ from models import (
     HealthCheckResponse
 )
 from inference import get_disease_predictor, get_stress_predictor
+
+# Add project root for module_bridge
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+try:
+    from module_bridge import push_event as _push_event
+except ImportError:
+    def _push_event(*a, **k): pass
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -132,18 +141,31 @@ async def predict_disease_risk(input_data: LifestyleDiseaseInput):
                 risk_level = "Low"
             elif avg_risk < 60:
                 risk_level = "Moderate"
-            else:
+            elif avg_risk < 80:
                 risk_level = "High"
+            else:
+                risk_level = "Critical"  # Add Critical for very high risk (>=80%)
             
             recommendations = generate_disease_recommendations(input_data, risk_level)
         
-        return DiseaseRiskOutput(
+        output = DiseaseRiskOutput(
             heart_disease_risk=round(heart_disease_risk, 1),
             diabetes_risk=round(diabetes_risk, 1),
             hypertension_risk=round(hypertension_risk, 1),
             risk_level=risk_level,
             recommendations=recommendations
         )
+
+        # Push event to orchestrator if risk is high
+        if risk_level in ("High", "Critical"):
+            _push_event("HIGH_DISEASE_RISK", "vijitha", {
+                "risk_level": risk_level,
+                "heart": round(heart_disease_risk, 1),
+                "diabetes": round(diabetes_risk, 1),
+                "hypertension": round(hypertension_risk, 1),
+            })
+
+        return output
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error in disease risk prediction: {str(e)}")
@@ -311,7 +333,7 @@ async def detect_stress(input_data: StressDetectionInput):
             professional_help_needed = stress_score > 70
             suggested_actions = generate_stress_recommendations(stress_level, detected_emotions)
         
-        return StressDetectionOutput(
+        output = StressDetectionOutput(
             stress_level=stress_level,
             stress_score=round(stress_score, 1),
             confidence=round(confidence, 2),
@@ -319,6 +341,16 @@ async def detect_stress(input_data: StressDetectionInput):
             suggested_actions=suggested_actions,
             professional_help_needed=professional_help_needed
         )
+
+        # Push event to orchestrator if stress is high
+        if stress_level in ("High", "Critical"):
+            _push_event("HIGH_STRESS", "vijitha", {
+                "stress_level": stress_level,
+                "stress_score": round(stress_score, 1),
+                "emotions": detected_emotions[:3],
+            })
+
+        return output
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error in stress detection: {str(e)}")

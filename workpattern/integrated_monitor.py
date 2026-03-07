@@ -15,6 +15,13 @@ from typing import List, Dict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Add parent directory for module_bridge
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+try:
+    from module_bridge import push_event as _push_event
+except ImportError:
+    def _push_event(*a, **k): pass
+
 class IntegratedMonitor:
     def __init__(self):
         # User profile
@@ -331,6 +338,17 @@ class IntegratedMonitor:
                 self.current_metrics = metrics
                 self.current_analysis = analysis
                 self.analysis_history.append(analysis)
+
+                # Push events to orchestrator → avatar
+                if analysis.get('break_needed'):
+                    _push_event("HIGH_FATIGUE", "workpattern", {
+                        "fatigue_score": analysis['fatigue_score'],
+                        "work_duration": round(metrics['work_duration']),
+                    })
+                elif metrics['work_duration'] > 90:
+                    _push_event("LONG_SESSION", "workpattern", {
+                        "work_duration": round(metrics['work_duration']),
+                    })
                 
                 # Show wellness popup (only if 30 minutes passed since last popup)
                 time_since_popup = (datetime.now() - self.last_popup).total_seconds()
