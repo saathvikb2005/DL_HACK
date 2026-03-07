@@ -1,0 +1,5 @@
+opencv-python>=4.8
+mediapipe>=0.10
+plyer>=2.1
+winotify>=1.1
+numpy>=1.24
