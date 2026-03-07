@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------
 _rf_model = None
 _lstm_model = None
+_lstm_scaler = None
+
+LSTM_SEQ_LEN = 7
+LSTM_FEATURES = ["pm25", "pm10", "no2", "co", "o3", "so2"]
 
 
 # ----------------------------------------------------
@@ -32,7 +36,7 @@ _lstm_model = None
 # ----------------------------------------------------
 def load_models():
     """Load ML models during API startup."""
-    global _rf_model, _lstm_model
+    global _rf_model, _lstm_model, _lstm_scaler
 
     # Random Forest
     try:
@@ -45,15 +49,23 @@ def load_models():
     except Exception:
         logger.exception("Failed loading Random Forest model")
 
-    # LSTM
+    # LSTM + scaler
+    scaler_path = settings.TRAINED_MODELS_DIR / "lstm_scaler.pkl"
     try:
-        if settings.LSTM_MODEL_PATH.exists():
+        if settings.LSTM_MODEL_PATH.exists() and scaler_path.exists():
             from tensorflow.keras.models import load_model
 
             _lstm_model = load_model(str(settings.LSTM_MODEL_PATH))
-            logger.info("LSTM model loaded")
+            with open(scaler_path, "rb") as f:
+                _lstm_scaler = pickle.load(f)
+            logger.info("LSTM model + scaler loaded")
         else:
-            logger.warning("LSTM model not found — heuristic fallback enabled")
+            missing = []
+            if not settings.LSTM_MODEL_PATH.exists():
+                missing.append("model")
+            if not scaler_path.exists():
+                missing.append("scaler")
+            logger.warning("LSTM %s not found — heuristic fallback enabled", "+".join(missing))
     except Exception:
         logger.warning("TensorFlow not installed or LSTM failed")
 
@@ -81,52 +93,77 @@ def _build_features(req: PredictionRequest):
 
 
 def _build_sequence(req: PredictionRequest):
-    pm25 = req.historical_pollution.pm25 or [req.current_aqi]
+    """Build a (1, LSTM_SEQ_LEN, 6) sequence for the LSTM model.
 
-    seq = pm25[-24:]
+    Uses the last LSTM_SEQ_LEN readings of all 6 pollutants,
+    normalized through the saved MinMaxScaler.
+    """
+    poll = req.historical_pollution
 
-    if len(seq) < 24:
-        seq = [seq[0]] * (24 - len(seq)) + seq
+    def last_n(values, n, fallback=0.0):
+        if not values:
+            return [fallback] * n
+        v = values[-n:]
+        return [v[0]] * (n - len(v)) + v  # pad front if short
 
-    return np.array(seq).reshape(1, 24, 1)
+    pm25 = last_n(poll.pm25, LSTM_SEQ_LEN, req.current_aqi)
+    pm10 = last_n(poll.pm10, LSTM_SEQ_LEN)
+    no2 = last_n(poll.no2, LSTM_SEQ_LEN)
+    co = last_n(poll.co, LSTM_SEQ_LEN)
+    o3 = last_n(poll.o3, LSTM_SEQ_LEN)
+    so2 = last_n(poll.so2, LSTM_SEQ_LEN)
+
+    # Shape: (LSTM_SEQ_LEN, 6)
+    raw = np.array([pm25, pm10, no2, co, o3, so2]).T
+
+    # Normalize with the scaler used during training
+    if _lstm_scaler is not None:
+        raw = _lstm_scaler.transform(raw)
+
+    return raw.reshape(1, LSTM_SEQ_LEN, len(LSTM_FEATURES))
 
 
 # ----------------------------------------------------
 # Heuristic fallback predictor
 # ----------------------------------------------------
 def _heuristic_predict(req: PredictionRequest):
+    """Simple heuristic forecast when ML models are unavailable.
+
+    Applies trend, weather adjustments, and diurnal pattern as
+    *additive offsets* from the current AQI rather than compounding
+    multiplicative factors (which would decay the AQI to 0).
+    """
     pm25 = req.historical_pollution.pm25 or [req.current_aqi]
     current = req.current_aqi
 
+    # Trend: average hourly change from recent readings
     if len(pm25) >= 6:
         recent = pm25[-6:]
         trend = (recent[-1] - recent[0]) / len(recent)
     else:
         trend = 0
 
-    wind_factor = max(0.7, 1 - req.weather.wind_speed / 50)
-    rain_factor = max(0.5, 1 - (req.weather.precipitation or 0) / 20)
-    humidity_factor = 1 + (req.weather.humidity - 50) / 200
+    # Weather adjustments (additive, applied once, not compounded)
+    wind_adj = -req.weather.wind_speed * 0.5          # wind disperses pollution
+    rain_adj = -(req.weather.precipitation or 0) * 2  # rain washes out particles
+    humid_adj = (req.weather.humidity - 50) * 0.1     # high humidity traps particles
+
+    base_adj = wind_adj + rain_adj + humid_adj
 
     forecasts = []
-    aqi = current
-
     for hour in range(1, 49):
+        # Damped trend
+        damping = 0.97 ** hour
+        aqi = current + trend * hour * damping + base_adj * damping
 
-        damping = 0.95 ** hour
-        aqi = aqi + trend * damping
-
-        aqi = aqi * wind_factor * rain_factor * humidity_factor
-
+        # Diurnal pattern: rush-hour peaks
         hour_of_day = (datetime.now().hour + hour) % 24
-
         if 7 <= hour_of_day <= 10 or 18 <= hour_of_day <= 21:
-            aqi *= 1.05
-        else:
-            aqi *= 0.98
+            aqi += current * 0.03  # slight peak
+        elif 1 <= hour_of_day <= 5:
+            aqi -= current * 0.05  # overnight dip
 
         aqi = max(0, min(500, aqi))
-
         forecasts.append(round(aqi, 1))
 
     return forecasts
@@ -140,28 +177,12 @@ def predict_aqi(req: PredictionRequest, waqi_data=None, weather_data=None):
     model_used = "heuristic_baseline"
 
     # -------------------------
-    # Try LSTM
+    # Try Random Forest first (more reliable for diverse cities)
+    # LSTM is biased toward high AQI from Indian training data
     # -------------------------
-    if _lstm_model is not None:
-        try:
-            seq = _build_sequence(req)
-            preds = _lstm_model.predict(seq, verbose=0).flatten().tolist()
+    rf_ok = False
 
-            while len(preds) < 48:
-                preds.append(preds[-1])
-
-            hourly_predictions = [max(0, min(500, round(v, 1))) for v in preds[:48]]
-
-            model_used = "lstm"
-
-        except Exception:
-            logger.exception("LSTM prediction failed")
-            hourly_predictions = _heuristic_predict(req)
-
-    # -------------------------
-    # Try Random Forest
-    # -------------------------
-    elif _rf_model is not None:
+    if _rf_model is not None:
         try:
             features = _build_features(req)
             pred_24h = float(_rf_model.predict(features)[0])
@@ -174,12 +195,47 @@ def predict_aqi(req: PredictionRequest, waqi_data=None, weather_data=None):
                 hourly_predictions.append(round(max(0, min(500, pred)), 1))
 
             model_used = "random_forest"
+            rf_ok = True
 
         except Exception:
-            logger.exception("RF prediction failed")
+            logger.exception("RF prediction failed — trying LSTM")
+
+    # -------------------------
+    # Try LSTM if RF unavailable (fallback)
+    # -------------------------
+    if not rf_ok and _lstm_model is not None and _lstm_scaler is not None:
+        try:
+            seq = _build_sequence(req)
+            # LSTM outputs 1 value per call; iterate to build 48h forecast
+            preds = []
+            current_seq = seq.copy()
+            for _ in range(48):
+                p = float(_lstm_model.predict(current_seq, verbose=0).flatten()[0])
+                preds.append(p)
+                # Slide window: drop first timestep, append prediction as pm25
+                new_row = current_seq[0, -1, :].copy()
+                # Update the pm25 column (index 0) with the new prediction
+                # Normalize: use scaler's pm25 min/max
+                pm25_min = _lstm_scaler.data_min_[0]
+                pm25_max = _lstm_scaler.data_max_[0]
+                pm25_range = pm25_max - pm25_min if pm25_max > pm25_min else 1.0
+                new_row[0] = (p - pm25_min) / pm25_range
+                new_row = np.clip(new_row, 0, 1)
+                current_seq = np.concatenate(
+                    [current_seq[:, 1:, :], new_row.reshape(1, 1, -1)], axis=1
+                )
+
+            hourly_predictions = [max(0, min(500, round(v, 1))) for v in preds]
+            model_used = "lstm"
+
+        except Exception:
+            logger.exception("LSTM prediction failed — using heuristic")
             hourly_predictions = _heuristic_predict(req)
 
-    else:
+    # -------------------------
+    # Fallback to heuristic if neither ML model produced results
+    # -------------------------
+    if model_used == "heuristic_baseline":
         hourly_predictions = _heuristic_predict(req)
 
     # ------------------------------------------------
@@ -222,6 +278,26 @@ def predict_aqi(req: PredictionRequest, waqi_data=None, weather_data=None):
         warnings.append("Hazardous air quality — avoid outdoor exposure.")
 
     recommendations = get_health_recommendations(worst_aqi)
+    
+    # Add weather-conditional recommendations for all AQI levels
+    # Weather can affect comfort and health even when air quality is good
+    weather_recommendations = []
+    
+    if req.weather.temperature > 30:
+        weather_recommendations.append("High temperature increases health risks - stay hydrated and minimize outdoor exposure during peak heat hours")
+    
+    if req.weather.humidity > 80:
+        weather_recommendations.append("High humidity makes breathing more difficult - sensitive groups should take extra precautions")
+    
+    if req.weather.wind_speed < 5:
+        if worst_aqi > 50:  # Only warn about dispersion if AQI is elevated
+            weather_recommendations.append("Low wind speed means pollutants are not dispersing - air quality may worsen")
+    elif req.weather.wind_speed > 30:
+        weather_recommendations.append("Strong winds may stir up dust and particles - wear protective masks if going outdoors")
+    
+    # Add weather recommendations to the list
+    if weather_recommendations:
+        recommendations.extend(weather_recommendations)
 
     hourly_forecast = []
 

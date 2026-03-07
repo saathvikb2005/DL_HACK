@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Saathvik — AI Wellness Companion</title>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      overflow: hidden;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #1a1a2e;
+    }
+
+    /* ── Speech Bubble ─────────────────────────────────── */
+    #speechBubble {
+      position: absolute;
+      bottom: 180px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.95);
+      color: #1a1a2e;
+      padding: 14px 20px;
+      border-radius: 16px;
+      font-size: 15px;
+      line-height: 1.5;
+      max-width: 420px;
+      text-align: center;
+      display: none;
+      z-index: 20;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      animation: fadeIn 0.3s ease;
+    }
+    #speechBubble::after {
+      content: '';
+      position: absolute;
+      bottom: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 10px solid transparent;
+      border-top-color: rgba(255, 255, 255, 0.95);
+      border-bottom: 0;
+    }
+
+    /* ── Chat Panel ────────────────────────────────────── */
+    #chatPanel {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 340px;
+      max-height: 400px;
+      background: rgba(15, 15, 30, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      z-index: 30;
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+      overflow: hidden;
+    }
+
+    #chatHeader {
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #chatHeader .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #4caf50;
+    }
+
+    #chatMessages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      max-height: 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #chatMessages::-webkit-scrollbar { width: 4px; }
+    #chatMessages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+
+    .chat-msg {
+      padding: 8px 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.4;
+      max-width: 85%;
+      word-wrap: break-word;
+    }
+    .chat-msg.user {
+      background: #3b82f6;
+      color: white;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+    .chat-msg.assistant {
+      background: rgba(255, 255, 255, 0.1);
+      color: #e0e0e0;
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+    }
+    .chat-msg.system {
+      background: rgba(76, 175, 80, 0.15);
+      color: #81c784;
+      align-self: center;
+      font-size: 11px;
+      text-align: center;
+    }
+
+    #chatInputArea {
+      padding: 10px 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      gap: 8px;
+    }
+    #chatInput {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: white;
+      font-size: 13px;
+      outline: none;
+    }
+    #chatInput::placeholder { color: rgba(255, 255, 255, 0.35); }
+    #chatInput:focus { border-color: rgba(59, 130, 246, 0.5); }
+
+    #chatSend {
+      background: #3b82f6;
+      border: none;
+      border-radius: 10px;
+      padding: 8px 14px;
+      color: white;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    #chatSend:hover { background: #2563eb; }
+
+    /* ── Status Bar ────────────────────────────────────── */
+    #statusBar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      display: flex;
+      gap: 8px;
+      z-index: 20;
+    }
+    .status-pill {
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 500;
+      color: white;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .status-pill .indicator {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+    }
+    .indicator.green { background: #4caf50; }
+    .indicator.yellow { background: #ffc107; }
+    .indicator.red { background: #f44336; }
+    .indicator.gray { background: #666; }
+
+    /* ── Event Log ─────────────────────────────────────── */
+    #eventLog {
+      position: absolute;
+      top: 50px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #4caf50;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-family: 'Cascadia Code', monospace;
+      font-size: 11px;
+      max-width: 320px;
+      max-height: 180px;
+      overflow-y: auto;
+      display: none;
+      z-index: 15;
+      border: 1px solid rgba(76, 175, 80, 0.2);
+    }
+    #eventLog::-webkit-scrollbar { width: 3px; }
+    #eventLog::-webkit-scrollbar-thumb { background: #4caf50; border-radius: 3px; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    /* ── Audio Activation Overlay ─────────────────────── */
+    #audioOverlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
+    }
+    #audioOverlay.hidden { display: none; }
+    .overlay-content { text-align: center; color: white; }
+    .overlay-icon { font-size: 64px; margin-bottom: 16px; }
+    .overlay-text { font-size: 20px; opacity: 0.9; }
+
+    /* ── Debug Toggle Button ──────────────────────────── */
+    #debugToggle {
+      position: absolute;
+      top: 12px;
+      right: 20px;
+      z-index: 40;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      padding: 6px 14px;
+      color: #ccc;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      transition: all 0.2s;
+    }
+    #debugToggle:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
+    #debugToggle.active { background: rgba(59, 130, 246, 0.3); border-color: #3b82f6; color: #93c5fd; }
+
+    /* ── Debug Panel ──────────────────────────────────── */
+    #debugPanel {
+      position: absolute;
+      top: 50px;
+      right: 20px;
+      width: 380px;
+      max-height: calc(100vh - 80px);
+      background: rgba(10, 10, 25, 0.95);
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      border-radius: 14px;
+      z-index: 35;
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+      overflow: hidden;
+      flex-direction: column;
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+    }
+    #debugPanel.hidden { display: none !important; }
+    #debugPanel.visible { display: flex !important; }
+
+    #debugPanel .debug-header {
+      padding: 10px 14px;
+      background: rgba(59, 130, 246, 0.08);
+      border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Video Feed */
+    #debugVideo {
+      width: 100%;
+      height: 220px;
+      background: #000;
+      object-fit: contain;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    /* Audio Waveform */
+    #debugAudioWrap {
+      padding: 8px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    #debugAudioWrap .label {
+      color: #4caf50;
+      font-size: 10px;
+      margin-bottom: 4px;
+    }
+    #audioCanvas {
+      width: 100%;
+      height: 50px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.4);
+    }
+
+    /* Debug Event Log */
+    #debugEventLog {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 14px;
+      max-height: 200px;
+    }
+    #debugEventLog::-webkit-scrollbar { width: 3px; }
+    #debugEventLog::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 3px; }
+    .debug-event-entry {
+      font-size: 11px;
+      padding: 3px 0;
+      color: #a0a0c0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+    .debug-event-entry .ev-time { color: #666; }
+    .debug-event-entry .ev-source { color: #4caf50; }
+    .debug-event-entry .ev-type { color: #f59e0b; }
+    .debug-event-entry .ev-msg { color: #ccc; }
+  </style>
+</head>
+
+<body>
+
+  <!-- Status Bar -->
+  <div id="statusBar">
+    <div class="status-pill" id="pillOrchestrator">
+      <span class="indicator gray" id="indOrch"></span> Hub
+    </div>
+    <div class="status-pill" id="pillEye">
+      <span class="indicator gray" id="indEye"></span> Eyes
+    </div>
+    <div class="status-pill" id="pillPosture">
+      <span class="indicator gray" id="indPosture"></span> Posture
+    </div>
+    <div class="status-pill" id="pillWork">
+      <span class="indicator gray" id="indWork"></span> Work
+    </div>
+    <div class="status-pill" id="pillAir">
+      <span class="indicator gray" id="indAir"></span> Air
+    </div>
+    <div class="status-pill" id="pillVijitha">
+      <span class="indicator gray" id="indVijitha"></span> Health
+    </div>
+  </div>
+
+  <!-- Debug Toggle Button -->
+  <button id="debugToggle">Debug Panel</button>
+
+  <!-- Debug Panel -->
+  <div id="debugPanel" class="hidden">
+    <div class="debug-header">Debug Panel — Video & Audio</div>
+    <img id="debugVideo" alt="Camera Feed" />
+    <div id="debugAudioWrap">
+      <div class="label">AUDIO WAVEFORM</div>
+      <canvas id="audioCanvas"></canvas>
+    </div>
+    <div id="debugEventLog"></div>
+  </div>
+
+  <!-- Audio Activation Overlay -->
+  <div id="audioOverlay" tabindex="0" role="button" aria-label="Enable voice">
+    <div class="overlay-content">
+      <div class="overlay-icon">🔊</div>
+      <div class="overlay-text">Click anywhere to enable voice</div>
+    </div>
+  </div>
+
+  <!-- Speech Bubble -->
+  <div id="speechBubble"></div>
+
+  <!-- Event Log -->
+  <div id="eventLog"></div>
+
+  <!-- Chat Panel -->
+  <div id="chatPanel">
+    <div id="chatHeader">
+      <span class="dot"></span> Saathvik — Wellness Companion
+    </div>
+    <div id="chatMessages"></div>
+    <div id="chatInputArea">
+      <input type="text" id="chatInput" placeholder="Talk to your companion..." autocomplete="off" />
+      <button id="chatSend">Send</button>
+    </div>
+  </div>
+
+  <script type="module" src="/renderer/main.js"></script>
+
+</body>
+</html>
