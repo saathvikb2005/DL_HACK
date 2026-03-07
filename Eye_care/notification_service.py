@@ -1,7 +1,15 @@
 import os
+import sys
 import time
 import logging
 from config import COOLDOWN_BLINK, COOLDOWN_STARE, COOLDOWN_SCREEN_TIME
+
+# Add parent directory to path for module_bridge
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+try:
+    from module_bridge import push_event
+except ImportError:
+    def push_event(*a, **k): pass
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +53,10 @@ class NotificationService:
 
     @staticmethod
     def _detect_backend():
-        """Pick the best available notification backend."""
-        if os.name == "nt":
-            try:
-                import winotify  # noqa: F401
-                return "winotify"
-            except ImportError:
-                pass
-        try:
-            from plyer import notification  # noqa: F401
-            return "plyer"
-        except ImportError:
-            logger.debug("No notification library found, using console fallback")
-            return "console"
+        """Pick the best available notification backend.
+        Windows toasts/popups are disabled — avatar voice output is used instead.
+        """
+        return "console"
 
     # ── Sending ───────────────────────────────────────────────────────────────
 
@@ -145,3 +144,13 @@ class NotificationService:
 
         self._send(title, full_message, event_type)
         self._last_sent[event_type] = now
+
+        # Push event to orchestrator → avatar
+        event_map = {
+            "low_blink": "LOW_BLINK_RATE",
+            "continuous_stare": "CONTINUOUS_STARE",
+            "long_screen_time": "LONG_SCREEN_TIME",
+        }
+        orch_event = event_map.get(event_type)
+        if orch_event:
+            push_event(orch_event, "eye_care", {"detail": extra_info} if extra_info else None)

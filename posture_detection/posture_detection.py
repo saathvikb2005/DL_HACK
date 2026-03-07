@@ -38,6 +38,13 @@ import urllib.request
 from collections import deque
 from datetime import datetime
 
+# Add parent directory for module_bridge
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+try:
+    from module_bridge import push_event as _push_event
+except ImportError:
+    def _push_event(*a, **k): pass
+
 # Suppress verbose TFLite / feedback-manager stderr logs
 os.environ.setdefault("GLOG_minloglevel", "3")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
@@ -97,17 +104,9 @@ def draw_pose(frame, landmarks, h, w):
 
 def _alert_worker(score: int, issues: list):
     """
-    Show a Windows toast notification AND play a beep.
-    Runs on a daemon thread so it never blocks the webcam loop.
+    Log posture alert to console only.
+    Windows toasts/popups/beeps are disabled — avatar voice output is used instead.
     """
-    # -- Beep ----------------------------------------------------------------
-    try:
-        import winsound
-        winsound.Beep(1000, 400)
-    except Exception:
-        pass
-
-    # -- Build issue-specific message ----------------------------------------
     issue_str = " + ".join(issues) if issues else "Poor Posture"
     if score < 30:
         title   = "Posture Alert - Critical!"
@@ -121,41 +120,15 @@ def _alert_worker(score: int, issues: list):
 
     print(f"[ALERT] {title} - {message}")
 
-    # -- Windows Toast (winotify) -------------------------------------------
-    notified = False
-    try:
-        from winotify import Notification, audio
-        toast = Notification(
-            app_id="Posture Detection",
-            title=title,
-            msg=message,
-            duration="short",
-        )
-        toast.set_audio(audio.Default, loop=False)
-        toast.show()
-        notified = True
-    except Exception as e:
-        print(f"[ALERT] Toast failed ({e}), trying tkinter popup...")
-
-    if notified:
-        return
-
-    # -- Fallback: tkinter popup (non-blocking) ------------------------------
-    try:
-        import tkinter as tk
-        from tkinter import messagebox
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        messagebox.showwarning(title, message)
-        root.destroy()
-    except Exception as e:
-        print(f"[ALERT] tkinter also failed ({e}). Check notifications manually.")
-
 
 def trigger_alert(score: int, issues: list):
     """Fire notification + beep on a daemon thread (non-blocking)."""
     threading.Thread(target=_alert_worker, args=(score, issues), daemon=True).start()
+    # Push to orchestrator → avatar (with exception handling)
+    try:
+        _push_event("BAD_POSTURE", "posture", {"posture_score": score, "issues": issues})
+    except Exception as e:
+        print(f"[WARN] Failed to push BAD_POSTURE event to orchestrator: {e}")
 
 
 def check_winotify():
