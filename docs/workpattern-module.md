@@ -12,7 +12,7 @@ Real-time typing behavior analysis system that monitors work patterns and recomm
 
 ## System Architecture
 
-```
+```text
 Typing Metrics Input
       │
       ▼
@@ -34,12 +34,14 @@ Break Recommendations
 ## Dataset
 
 **10,000 realistic work pattern samples** based on productivity research:
+
 - 30% Healthy patterns (300 keys/min, regular breaks)
 - 25% Focused patterns (350 keys/min, minimal breaks)
 - 25% Break Soon patterns (280 keys/min, rising errors)
 - 20% Fatigue patterns (220 keys/min, high errors)
 
 Features tracked:
+
 - Typing speed (keys/min)
 - Idle time (minutes)
 - Work duration (continuous minutes)
@@ -51,8 +53,10 @@ Features tracked:
 ## Installation
 
 ```bash
-cd workpattern
+# Install dependencies from project root
+cd ..
 pip install -r requirements.txt
+cd workpattern
 ```
 
 ## Training
@@ -66,7 +70,8 @@ python train_model.py
 ```
 
 Expected output:
-```
+
+```text
 Test Accuracy: 95%+
 Healthy: 96%
 Focused: 94%
@@ -80,14 +85,16 @@ Fatigue: 96%
 python main.py
 ```
 
-Server starts at: http://localhost:8001
+Server starts at: <http://localhost:8001>
 
 ## API Endpoints
 
 ### 1. Analyze Work Pattern
+
 **POST** `/api/v1/analyze-pattern`
 
 **Request:**
+
 ```json
 {
   "typing_speed": 280.0,
@@ -100,6 +107,7 @@ Server starts at: http://localhost:8001
 ```
 
 **Response:**
+
 ```json
 {
   "fatigue_level": "Break Soon",
@@ -121,9 +129,11 @@ Server starts at: http://localhost:8001
 ```
 
 ### 2. Health Check
+
 **GET** `/api/health`
 
 ### 3. Reset Session
+
 **POST** `/api/v1/reset-session`
 
 ## Testing
@@ -141,6 +151,7 @@ curl -X POST "http://localhost:8001/api/v1/analyze-pattern" \
 ## Test Cases
 
 ### Test Case 1: Healthy Work Pattern
+
 ```json
 {
   "typing_speed": 320.0,
@@ -151,9 +162,11 @@ curl -X POST "http://localhost:8001/api/v1/analyze-pattern" \
   "mouse_activity": 25.0
 }
 ```
+
 **Expected:** Healthy, Score: 10-20
 
 ### Test Case 2: Focused/Productive
+
 ```json
 {
   "typing_speed": 360.0,
@@ -164,9 +177,11 @@ curl -X POST "http://localhost:8001/api/v1/analyze-pattern" \
   "mouse_activity": 18.0
 }
 ```
+
 **Expected:** Focused, Score: 20-35
 
 ### Test Case 3: Break Soon Required
+
 ```json
 {
   "typing_speed": 280.0,
@@ -177,9 +192,11 @@ curl -X POST "http://localhost:8001/api/v1/analyze-pattern" \
   "mouse_activity": 38.0
 }
 ```
+
 **Expected:** Break Soon, Score: 50-75
 
 ### Test Case 4: Fatigue Detected
+
 ```json
 {
   "typing_speed": 210.0,
@@ -190,11 +207,12 @@ curl -X POST "http://localhost:8001/api/v1/analyze-pattern" \
   "mouse_activity": 52.0
 }
 ```
+
 **Expected:** Fatigue, Score: 75-100
 
 ## Interactive Documentation
 
-Open in browser: http://localhost:8001/api/docs
+Open in browser: <http://localhost:8001/api/docs>
 
 ## Model Performance
 
@@ -205,7 +223,7 @@ Open in browser: http://localhost:8001/api/docs
 
 ## Project Structure
 
-```
+```text
 workpattern/
 ├── data/
 │   ├── train_data.csv (8,000 samples)
@@ -219,8 +237,9 @@ workpattern/
 ├── models.py
 ├── main.py
 ├── test_api.py
-├── requirements.txt
 └── README.md
+
+**Note:** Dependencies are in the root `../requirements.txt` file.
 ```
 
 ## Tech Stack

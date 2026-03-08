@@ -22,6 +22,12 @@ BLINK_MAX_FRAMES = EAR_CONSEC_FRAMES * 2  # upper bound for valid blink duration
 LEFT_EYE = [362, 385, 387, 263, 373, 380]
 RIGHT_EYE = [33, 160, 158, 133, 153, 144]
 
+# Mouth landmarks for yawn detection (MAR - Mouth Aspect Ratio)
+MOUTH_TOP = [13, 14]      # Upper lip center
+MOUTH_BOTTOM = [16, 17]   # Lower lip center
+MOUTH_LEFT = [78]         # Left corner
+MOUTH_RIGHT = [308]       # Right corner
+
 
 MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
@@ -65,6 +71,12 @@ class BlinkDetector:
         self.blink_count = 0
         self.last_ear = 0.0
         self.face_detected = False
+        
+        # Yawn detection variables
+        self.yawn_count = 0
+        self.last_mar = 0.0
+        self._yawn_frames = 0
+        self._last_yawn_time = time.time()
 
         # EAR smoothing buffer
         self.ear_history = deque(maxlen=5)
@@ -81,7 +93,7 @@ class BlinkDetector:
 
     @staticmethod
     def _ear(landmarks, eye_indices, w, h):
-
+        """Calculate Eye Aspect Ratio (EAR) for blink detection."""
         pts = np.array(
             [(landmarks[i].x * w, landmarks[i].y * h) for i in eye_indices],
             dtype=np.float64
@@ -95,6 +107,33 @@ class BlinkDetector:
             return 0
 
         return (v1 + v2) / (2.0 * h1)
+    
+    @staticmethod
+    def _mar(landmarks, w, h):
+        """Calculate Mouth Aspect Ratio (MAR) for yawn detection."""
+        # Get vertical distance (top to bottom)
+        top_pts = np.array(
+            [(landmarks[i].x * w, landmarks[i].y * h) for i in MOUTH_TOP],
+            dtype=np.float64
+        )
+        bottom_pts = np.array(
+            [(landmarks[i].x * w, landmarks[i].y * h) for i in MOUTH_BOTTOM],
+            dtype=np.float64
+        )
+        
+        # Get horizontal distance (left to right)
+        left_pt = np.array([landmarks[MOUTH_LEFT[0]].x * w, landmarks[MOUTH_LEFT[0]].y * h])
+        right_pt = np.array([landmarks[MOUTH_RIGHT[0]].x * w, landmarks[MOUTH_RIGHT[0]].y * h])
+        
+        # Calculate vertical and horizontal distances
+        vertical_dist = np.mean([np.linalg.norm(top_pts[i] - bottom_pts[i]) for i in range(len(top_pts))])
+        horizontal_dist = np.linalg.norm(left_pt - right_pt)
+        
+        if horizontal_dist == 0:
+            return 0
+        
+        # MAR = vertical / horizontal (higher value = mouth more open)
+        return vertical_dist / horizontal_dist
 
     def process_frame(self, frame):
 
@@ -111,6 +150,9 @@ class BlinkDetector:
             "blink_happened": False,
             "blink_count": self.blink_count,
             "face_distance_ratio": 0.0,
+            "mar": 0.0,
+            "yawn_happened": False,
+            "yawn_count": self.yawn_count,
         }
 
         if not results.face_landmarks:
@@ -176,6 +218,30 @@ class BlinkDetector:
         left_outer = landmarks[LEFT_EYE[0]]
         right_outer = landmarks[RIGHT_EYE[0]]
         face_distance_ratio = abs(left_outer.x - right_outer.x)
+        
+        # ─── Yawn Detection ───
+        mar = self._mar(landmarks, w, h)
+        self.last_mar = mar
+        
+        # Yawn detection parameters
+        MAR_YAWN_THRESHOLD = 0.6  # Threshold for mouth opening (higher = more open)
+        YAWN_MIN_FRAMES = 10      # Minimum frames to consider a yawn (~0.3 seconds at 30fps)
+        YAWN_COOLDOWN = 3.0       # Seconds between yawn detections
+        
+        yawn_happened = False
+        
+        # Detect yawn based on sustained mouth opening
+        if mar > MAR_YAWN_THRESHOLD:
+            self._yawn_frames += 1
+        else:
+            # Check if we had a sustained yawn
+            if self._yawn_frames >= YAWN_MIN_FRAMES:
+                # Ensure cooldown period has passed
+                if time.time() - self._last_yawn_time > YAWN_COOLDOWN:
+                    self.yawn_count += 1
+                    yawn_happened = True
+                    self._last_yawn_time = time.time()
+            self._yawn_frames = 0
 
         output.update({
             "face_detected": True,
@@ -183,6 +249,9 @@ class BlinkDetector:
             "blink_happened": blink_happened,
             "blink_count": self.blink_count,
             "face_distance_ratio": round(face_distance_ratio, 4),
+            "mar": round(mar, 4),
+            "yawn_happened": yawn_happened,
+            "yawn_count": self.yawn_count,
         })
 
         return output

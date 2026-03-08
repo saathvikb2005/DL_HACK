@@ -14,6 +14,7 @@ const eventMessages = {
   HYDRATE: "Remember to drink some water.",
   EYE_STRAIN: "Your eyes may be strained. Look at something 20 feet away for 20 seconds.",
   HIGH_STRESS: "Your stress levels seem elevated. Try some deep breathing.",
+  EXCESSIVE_YAWNING: "You are yawning frequently. Your body needs rest. Take a break.",
 };
 
 export function getMessageForEvent(eventType) {

@@ -20,6 +20,7 @@ Endpoints:
 import asyncio
 import json
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Optional
@@ -86,6 +87,7 @@ COOLDOWN_SECONDS = {
     "HIGH_STRESS": 300,
     "HIGH_DISEASE_RISK": 600,
     "WORK_STATUS": 1800,     # 30 min
+    "EXCESSIVE_YAWNING": 180, # 3 min - yawn-based fatigue detection
 }
 
 # ── Event → Friendly Message Mapping ────────────────────────────────────────
@@ -145,6 +147,12 @@ EVENT_MESSAGES = {
     ],
     "WORK_STATUS": [
         "Here's a quick update on your work session.",
+    ],
+    "EXCESSIVE_YAWNING": [
+        "You're yawning a lot! Your body is telling you it needs rest.",
+        "Frequent yawning detected. Time for a proper break or a quick power nap.",
+        "I've noticed you yawning. Consider stepping away for 15 minutes to refresh.",
+        "Your yawns suggest fatigue. A short walk or some fresh air might help.",
     ],
 }
 
@@ -577,6 +585,7 @@ async def root():
         "version": "1.0.0",
         "description": "Central hub for the AI Wellness Companion",
         "endpoints": {
+            "GET /health": "Health check endpoint",
             "POST /api/event": "Modules push health events",
             "POST /api/chat": "User chat input",
             "GET /api/status": "System status dashboard",
@@ -586,6 +595,22 @@ async def root():
             "GET /api/debug/frame": "Get latest camera frame",
             "GET /api/debug/events": "SSE stream for debug events",
         },
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """
+    Standard health check endpoint for monitoring tools.
+    Returns basic service status without detailed diagnostics.
+    For detailed status, use /api/status endpoint.
+    """
+    return {
+        "status": "healthy",
+        "service": "Wellness Orchestrator",
+        "version": "1.0.0",
+        "avatar_connected": len(connected_avatars) > 0,
+        "timestamp": datetime.now().isoformat(),
     }
 
 
