@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD060 -->
+
 # Air Quality Health Risk Predictor
 
 Predicts future AQI (next 24–48 hours) and provides health warnings & safety recommendations.
@@ -5,7 +7,7 @@ Integrates live data from **WAQI** (World Air Quality Index) and **OpenWeatherMa
 
 ## Project Structure
 
-```
+```text
 Air_quality_risk_pred/
 │
 ├── app/                              # Main application package
@@ -51,36 +53,42 @@ Air_quality_risk_pred/
 │   ├── lstm_aqi.keras                # [Generated] Trained LSTM model
 │   └── lstm_scaler.pkl               # [Generated] Feature scaler for LSTM inference
 │
-├── requirements.txt                  # Python dependencies
 └── README.md                         # This file
+
+**Note:** Dependencies are in the root `../requirements.txt` file.
 ```
 
 ## What Each File Does
 
 ### Core App
-| File | Purpose |
-|------|---------|
-| `app/main.py` | Creates the FastAPI app, sets up CORS, loads ML models on startup, registers routes, serves `/` and `/health` |
-| `app/config.py` | Stores API keys (WAQI, OpenWeatherMap), file paths, AQI breakpoint table (0–500 scale with 6 categories), and generates health recommendations per AQI level |
+
+| File             | Purpose                                                                                                                                                                                                         |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/main.py`    | Creates the FastAPI app, sets up CORS, loads ML models on startup, registers routes, serves `/` and `/health`                                                                                                  |
+| `app/config.py`  | Stores API keys (WAQI, OpenWeatherMap), file paths, AQI breakpoint table (0–500 scale with 6 categories), and generates health recommendations per AQI level                                                  |
 
 ### Schemas
-| File | Purpose |
-|------|---------|
-| `app/schemas/prediction.py` | Defines all Pydantic models — `CityPredictionRequest` (just a city name), `PredictionRequest` (full manual input), `PredictionResponse` (AQI forecast + health warnings + recommendations + hourly/daily forecasts + live data summary) |
+
+| File                             | Purpose                                                                                                                                                                                                   |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/schemas/prediction.py`      | Defines all Pydantic models — `CityPredictionRequest` (just a city name), `PredictionRequest` (full manual input), `PredictionResponse` (AQI forecast + health warnings + recommendations + hourly/daily forecasts + live data summary) |
 
 ### Services
-| File | Purpose |
-|------|---------|
-| `app/services/prediction_service.py` | The brain — loads trained RF/LSTM models at startup, builds feature vectors, runs predictions (with heuristic fallback if no model exists), classifies health risk, generates warnings |
-| `app/services/waqi_service.py` | Calls WAQI API → returns current AQI, pollutant sub-indices (PM2.5, PM10, NO2, O3, SO2, CO), daily forecasts, city geo-coordinates |
-| `app/services/weather_service.py` | Calls OpenWeatherMap API → returns temperature (°C), humidity (%), wind speed (km/h), pressure (hPa), weather description |
+
+| File                                    | Purpose                                                                                                                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `app/services/prediction_service.py`    | The brain — loads trained RF/LSTM models at startup, builds feature vectors, runs predictions (with heuristic fallback if no model exists), classifies health risk, generates warnings |
+| `app/services/waqi_service.py`          | Calls WAQI API → returns current AQI, pollutant sub-indices (PM2.5, PM10, NO2, O3, SO2, CO), daily forecasts, city geo-coordinates                                           |
+| `app/services/weather_service.py`       | Calls OpenWeatherMap API → returns temperature (°C), humidity (%), wind speed (km/h), pressure (hPa), weather description                                                     |
 
 ### Routes
-| File | Purpose |
-|------|---------|
-| `app/routes/prediction.py` | Three endpoints: `POST /predict/city` (auto-fetches live data by city name), `POST /predict` (manual with all data), `GET /aqi-categories` (reference table) |
+
+| File                          | Purpose                                                                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `app/routes/prediction.py`    | Three endpoints: `POST /predict/city` (auto-fetches live data by city name), `POST /predict` (manual with all data), `GET /aqi-categories` (reference table) |
 
 ### ML Pipeline
+
 | File | Purpose |
 |------|---------|
 | `app/models/preprocess.py` | Reads raw `city_day.csv` → cleans missing values, renames columns, adds `prev_aqi` feature → saves `city_day_clean.csv` |
@@ -90,12 +98,16 @@ Air_quality_risk_pred/
 ## Quick Start
 
 ```bash
-cd Air_quality_risk_pred
+# Install dependencies from project root
+cd ..
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+
+# Return to module and start server
+cd Air_quality_risk_pred
+uvicorn app.main:app --reload --port 8002
 ```
 
-Open **http://localhost:8000/docs** for the interactive Swagger UI.
+Open **<http://localhost:8002/docs>** for the interactive Swagger UI.
 
 ## ML Pipeline (Run Once)
 
@@ -113,17 +125,17 @@ python -m app.models.train_lstm --epochs 50
 
 ## API Endpoints
 
-| Method | Path                        | Description                                       |
-|--------|-----------------------------|----------------------------------------------------|
-| GET    | `/`                         | Service info                                       |
-| GET    | `/health`                   | Health check                                       |
-| POST   | `/api/v1/predict/city`      | Simple: just pass `{"city": "Delhi"}` → full prediction |
-| POST   | `/api/v1/predict`           | Manual: provide all data yourself                  |
-| GET    | `/api/v1/aqi-categories`    | List all AQI breakpoint categories                 |
+| Method | Path                        | Description                                                   |
+| ------ | --------------------------- | ------------------------------------------------------------- |
+| GET    | `/`                         | Service info                                                  |
+| GET    | `/health`                   | Health check                                                  |
+| POST   | `/api/v1/predict/city`      | Simple: just pass `{"city": "Delhi"}` → full prediction      |
+| POST   | `/api/v1/predict`           | Manual: provide all data yourself                             |
+| GET    | `/api/v1/aqi-categories`    | List all AQI breakpoint categories                            |
 
 ## System Flow
 
-```
+```text
 User sends city name (e.g. "Delhi")
         ↓
 Backend fetches live AQI from WAQI API
@@ -140,6 +152,7 @@ Returns: predicted AQI + warnings + recommendations
 ```
 
 ## Dataset
+
 - **Source**: CPCB (Central Pollution Control Board, India)
 - **File**: `data/city_day.csv`
 - **Columns**: City, Date, PM2.5, PM10, NO, NO2, NOx, NH3, CO, SO2, O3, Benzene, Toluene, Xylene, AQI, AQI_Bucket

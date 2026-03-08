@@ -16,7 +16,7 @@ import argparse
 import logging
 import sys
 
-from config import CAMERA_INDEX, CAPTURE_FPS, PROCESS_EVERY_N_FRAMES
+from config import CAMERA_INDEX, CAPTURE_FPS, PROCESS_EVERY_N_FRAMES, YAWN_WINDOW_MIN
 from blink_detector import BlinkDetector
 from fatigue_detector import FatigueDetector
 from notification_service import NotificationService
@@ -79,6 +79,7 @@ def run(headless: bool = False, debug: bool = False):
             events = fatigue_det.update(
                 blink_happened=result["blink_happened"],
                 face_detected=result["face_detected"],
+                yawn_happened=result["yawn_happened"],
             )
 
             # ── Send notifications ──
@@ -89,18 +90,22 @@ def run(headless: bool = False, debug: bool = False):
                     extra = f"Blink rate: {status['blink_rate']}/min"
                 elif event == "long_screen_time":
                     extra = f"Screen time: {status['screen_time_min']:.0f} minutes"
+                elif event == "excessive_yawning":
+                    extra = f"Yawns: {status['yawn_count']} in {YAWN_WINDOW_MIN} minutes"
                 notifier.notify(event, extra_info=extra)
 
             # ── Log status periodically ──
             if time.time() - last_status_log >= 30:
                 if result["face_detected"]:
                     logger.info(
-                        "Status: blinks=%d  rate=%.1f/min  stare=%.0fs  screen=%.0fmin  EAR=%.3f",
+                        "Status: blinks=%d  rate=%.1f/min  stare=%.0fs  screen=%.0fmin  yawns=%d  EAR=%.3f  MAR=%.3f",
                         result["blink_count"],
                         status["blink_rate"],
                         status["stare_duration_sec"],
                         status["screen_time_min"],
+                        status["yawn_count"],
                         result["ear"],
+                        result["mar"],
                     )
                 else:
                     logger.info("Status: face not detected (user away)")
@@ -160,12 +165,20 @@ def _draw_hud(frame, result, status, debug):
             f"Stare: {status['stare_duration_sec']:.0f}s",
             (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, stare_color, 1,
         )
+        
+        # Yawn count
+        yawn_color = color_warn if status["yawn_count"] >= 2 else color_ok
+        cv2.putText(
+            frame,
+            f"Yawns: {status['yawn_count']} ({status['yawn_rate']:.1f}/hr)",
+            (10, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.5, yawn_color, 1,
+        )
 
         if debug:
             cv2.putText(
                 frame,
-                f"EAR: {result['ear']:.4f}  Dist: {result['face_distance_ratio']:.3f}",
-                (10, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1,
+                f"EAR: {result['ear']:.4f}  MAR: {result['mar']:.3f}  Dist: {result['face_distance_ratio']:.3f}",
+                (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1,
             )
 
     # Bottom bar

@@ -2,7 +2,7 @@ import os
 import sys
 import time
 import logging
-from config import COOLDOWN_BLINK, COOLDOWN_STARE, COOLDOWN_SCREEN_TIME
+from config import COOLDOWN_BLINK, COOLDOWN_STARE, COOLDOWN_SCREEN_TIME, COOLDOWN_YAWN
 
 # Add parent directory to path for module_bridge
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -34,6 +34,12 @@ NOTIFICATIONS = {
         "💡 Tip: Follow the 20-20-20 rule — look at something 20 ft away for 20 seconds.",
         COOLDOWN_SCREEN_TIME,
     ),
+    "excessive_yawning": (
+        "😴  Fatigue Detected",
+        "You're yawning frequently — your body needs rest!",
+        "💡 Tip: Take a 15-minute break, stretch, get some water, or take a power nap.",
+        COOLDOWN_YAWN,
+    ),
 }
 
 # Severity mapping for visual styling
@@ -41,6 +47,7 @@ _SEVERITY = {
     "low_blink": "warning",
     "continuous_stare": "urgent",
     "long_screen_time": "warning",
+    "excessive_yawning": "urgent",
 }
 
 
@@ -150,6 +157,7 @@ class NotificationService:
             "low_blink": "LOW_BLINK_RATE",
             "continuous_stare": "CONTINUOUS_STARE",
             "long_screen_time": "LONG_SCREEN_TIME",
+            "excessive_yawning": "EXCESSIVE_YAWNING",
         }
         orch_event = event_map.get(event_type)
         if orch_event:
