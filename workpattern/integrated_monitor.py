@@ -59,6 +59,9 @@ class IntegratedMonitor:
         self.baseline_error_rate = self.user_profile.get('avg_error_rate', 0.03)
         
         self.running = False
+        self.monitor_thread = None
+        self.keyboard_listener = None
+        self.mouse_listener = None
         print(self.get_startup_banner())
     
     def load_or_create_profile(self):
@@ -400,30 +403,14 @@ class IntegratedMonitor:
     
     def start(self):
         """Start monitoring"""
-        self.running = True
-        
-        # Start monitoring thread
-        monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
-        monitor_thread.start()
-        
-        # Start keyboard listener
-        keyboard_listener = keyboard.Listener(on_press=self.on_key_press)
-        keyboard_listener.start()
-        
-        # Start mouse listener  
-        mouse_listener = mouse.Listener(on_click=self.on_mouse_click)
-        mouse_listener.start()
-        
-        print("\n✅ Monitor started! Tracking your typing...\n")
+        self.start_background()
         
         try:
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
             print("\n🛑 Stopping monitor...")
-            self.running = False
-            keyboard_listener.stop()
-            mouse_listener.stop()
+            self.stop_background()
             
             # Simple exit message
             duration = (datetime.now() - self.session_start).total_seconds() / 60.0
@@ -431,6 +418,34 @@ class IntegratedMonitor:
             print(f"✓ Keystrokes: {self.total_keystrokes:,}")
             self.save_profile()
             print("✓ Saved\n")
+
+    def start_background(self):
+        """Start monitoring without blocking the caller."""
+        if self.running:
+            return
+
+        self.running = True
+
+        self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
+        self.monitor_thread.start()
+
+        self.keyboard_listener = keyboard.Listener(on_press=self.on_key_press)
+        self.keyboard_listener.start()
+
+        self.mouse_listener = mouse.Listener(on_click=self.on_mouse_click)
+        self.mouse_listener.start()
+
+        print("\n✅ Monitor started! Tracking your typing...\n")
+
+    def stop_background(self):
+        """Stop background monitoring helpers if they are running."""
+        self.running = False
+        if self.keyboard_listener:
+            self.keyboard_listener.stop()
+            self.keyboard_listener = None
+        if self.mouse_listener:
+            self.mouse_listener.stop()
+            self.mouse_listener = None
 
 # Global monitor instance
 monitor_instance = None

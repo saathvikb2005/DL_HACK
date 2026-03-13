@@ -17,13 +17,13 @@ async def lifespan(app: FastAPI):
 
     Loads ML models when the API starts so predictions are fast.
     """
-    print("🔄 Loading AI models...")
+    print("[*] Loading AI models...")
     load_models()
-    print("✅ Models loaded successfully")
+    print("[OK] Models loaded successfully")
 
     yield
 
-    print("🛑 Shutting down API...")
+    print("[STOP] Shutting down API...")
 
 
 app = FastAPI(

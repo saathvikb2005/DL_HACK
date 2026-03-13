@@ -1,15 +1,39 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRM } from "@pixiv/three-vrm";
+import { AvatarAnimator } from "./avatar_animator.js";
+import { ProfessionalSpeech } from "./professional_speech.js";
+import { AdvancedLipSync } from "./advanced_lipsync.js";
+import { LipSyncController } from "./lip_sync.js"; // Fallback
 
 // ── State ───────────────────────────────────────────────────────────────────
 
 let currentVrm;
+let animator;
+let speech;
+let advancedLipSync; // New: Rhubarb-based lip sync
+let lipSync; // Fallback: Simple lip sync
 let blinkTimer = 0;
-let idleTime = 0;
-let isSpeaking = false;
-let speechQueue = [];
-let isProcessingQueue = false;
+
+// Event-to-emotion mapping
+const eventEmotionMap = {
+  LOW_BLINK_RATE: "concerned",
+  CONTINUOUS_STARE: "urgent",
+  LONG_SCREEN_TIME: "concerned",
+  BAD_POSTURE: "concerned",
+  HIGH_FATIGUE: "concerned",
+  LONG_SESSION: "calm",
+  POOR_AIR_QUALITY: "urgent",
+  TAKE_BREAK: "happy",
+  HYDRATE: "happy",
+  EYE_STRAIN: "concerned",
+  HIGH_STRESS: "concerned",
+  HIGH_DISEASE_RISK: "urgent",
+  EXCESSIVE_YAWNING: "concerned",
+  AQI_REPORT: "neutral",
+  WORK_STATUS: "neutral",
+  default: "neutral",
+};
 
 // ── DOM Elements ────────────────────────────────────────────────────────────
 
@@ -66,9 +90,54 @@ loader.load(
     currentVrm = gltf.userData.vrm;
     scene.add(currentVrm.scene);
     currentVrm.scene.rotation.y = 0;
-    console.log("Avatar loaded");
+    
+    // Initialize animation systems
+    animator = new AvatarAnimator(currentVrm);
+    
+    // Initialize BOTH lip sync systems
+    advancedLipSync = new AdvancedLipSync(currentVrm); // Rhubarb-based (best quality)
+    lipSync = new LipSyncController(currentVrm);       // Fallback (basic)
+    
+    // Initialize professional speech system
+    speech = new ProfessionalSpeech();
+    
+    // Setup speech callbacks with advanced lip sync
+    speech.onSpeechStart = (text, emotion) => {
+      speechBubble.innerText = text;
+      speechBubble.style.display = "block";
+      animator.setEmotion(emotion, 0.8);
+      
+      // Add contextual gestures based on emotion
+      if (emotion === "urgent") {
+        animator.addGesture("pointForward");
+      } else if (emotion === "happy") {
+        animator.addGesture("wave");
+      } else if (emotion === "concerned") {
+        animator.addGesture("handToChest");
+      } else if (emotion === "calm") {
+        animator.addGesture("openArms");
+      }
+    };
+    
+    speech.onSpeechEnd = () => {
+      speechBubble.style.display = "none";
+      animator.setEmotion("neutral", 0.3);
+    };
+    
+    speech.setupAudioUnlock(document.getElementById("audioOverlay"));
+    
+    console.log("✅ Avatar loaded with professional TTS + lip sync system");
+    console.log("   - Coqui TTS (server-side)");
+    console.log("   - Rhubarb Lip Sync (viseme-based)");
+    console.log("   - Fallback Web Speech API");
     addChatMessage("system", "Avatar loaded. Connecting to orchestrator...");
     connectWebSocket();
+    
+    // Greeting animation
+    setTimeout(() => {
+      animator.reactToInteraction("greeting");
+      avatarSpeak("Hello! I'm your wellness companion. I'm here to help you stay healthy.", "happy");
+    }, 1000);
   },
   (progress) => {
     // Guard against division by zero
@@ -82,29 +151,6 @@ loader.load(
   }
 );
 
-// ── Lip Sync ────────────────────────────────────────────────────────────────
-
-const mouthShapes = ["aa", "ih", "ou", "ee", "oh"];
-let mouthIndex = 0;
-let mouthCycleTimer = 0;
-
-function updateLipSync(deltaTime) {
-  if (!currentVrm) return;
-
-  if (isSpeaking) {
-    mouthCycleTimer += deltaTime;
-    if (mouthCycleTimer > 0.1) {
-      mouthCycleTimer = 0;
-      mouthIndex = (mouthIndex + 1) % mouthShapes.length;
-    }
-    const value = Math.abs(Math.sin(Date.now() * 0.015));
-    for (const s of mouthShapes) currentVrm.expressionManager.setValue(s, 0);
-    currentVrm.expressionManager.setValue(mouthShapes[mouthIndex], value);
-  } else {
-    for (const s of mouthShapes) currentVrm.expressionManager.setValue(s, 0);
-  }
-}
-
 // ── Animation Loop ──────────────────────────────────────────────────────────
 
 const clock = new THREE.Clock();
@@ -113,125 +159,55 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = clock.getDelta();
 
-  if (currentVrm) {
-    currentVrm.update(dt);
+  if (currentVrm && animator) {
+    // Update avatar animation system
+    animator.update(dt);
+    
+    // Update advanced lip sync (Rhubarb-based)
+    if (advancedLipSync) {
+      advancedLipSync.update(dt);
+    }
+    
+    // Update fallback lip sync (if advanced is not active)
+    if (lipSync && !advancedLipSync.isPlaying) {
+      const speechRate = speech?.emotionVoiceParams[animator.currentEmotion]?.rate || 1.0;
+      lipSync.update(dt, speechRate);
+    }
+    
+    // Update lookAt target
     currentVrm.lookAt.target = camera;
 
-    // Lip sync
-    updateLipSync(dt);
-
-    // Idle head movement
-    idleTime += dt;
-    currentVrm.scene.rotation.y = Math.sin(idleTime * 0.5) * 0.15;
-
-    // Blink
+    // Natural blinking (integrated with emotions)
     blinkTimer += dt;
-    const blinkCycle = blinkTimer % 4;
-    currentVrm.expressionManager.setValue("blink", blinkCycle < 0.15 ? 1 : 0);
+    const blinkCycle = blinkTimer % (3 + Math.random() * 2); // Variable blink rate
+    const blinkDuration = 0.15;
+    const blinkValue = blinkCycle < blinkDuration ? 1 : 0;
+    
+    try {
+      currentVrm.expressionManager?.setValue("blink", blinkValue);
+    } catch (e) {
+      // Blink expression not available
+    }
   }
 
   renderer.render(scene, camera);
 }
 animate();
 
-// ── Audio Activation ────────────────────────────────────────────────────────
+// ── Enhanced Speech Function ────────────────────────────────────────────────
 
-let audioUnlocked = false;
-const audioOverlay = document.getElementById("audioOverlay");
-
-function unlockAudio() {
-  if (audioUnlocked) return;
-  audioUnlocked = true;
-
-  // Trigger a silent utterance to unlock the speech engine
-  const silence = new SpeechSynthesisUtterance("");
-  silence.volume = 0;
-  speechSynthesis.speak(silence);
-
-  audioOverlay.classList.add("hidden");
-  console.log("Audio unlocked");
-
-  // If anything was queued before unlock, start processing
-  processQueue();
-}
-
-audioOverlay.addEventListener("click", unlockAudio);
-// Also unlock on any click/keydown anywhere on the page
-document.addEventListener("click", unlockAudio, { once: true });
-document.addEventListener("keydown", unlockAudio, { once: true });
-
-// ── Speech Engine ───────────────────────────────────────────────────────────
-
-function avatarSpeak(text) {
-  speechQueue.push(text);
-  processQueue();
-}
-
-function processQueue() {
-  if (isProcessingQueue || speechQueue.length === 0) return;
-  if (!audioUnlocked) return; // Wait until user has clicked
-  isProcessingQueue = true;
-
-  const text = speechQueue.shift();
-
-  // Chrome fix: cancel any stuck pending utterances
-  speechSynthesis.cancel();
-
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1;
-  utterance.pitch = 1;
-
-  // Pick a voice (prefer English), handle empty voices array
-  const voices = speechSynthesis.getVoices();
-  if (voices.length > 0) {
-    const preferred = voices.find(v => v.lang.startsWith("en") && v.localService)
-      || voices.find(v => v.lang.startsWith("en"))
-      || voices[0];
-    if (preferred) utterance.voice = preferred;
+function avatarSpeak(text, emotion = "neutral", priority = 0) {
+  if (speech) {
+    // Provide both controllers so speech layer can choose based on mode.
+    const lipController = {
+      advanced: advancedLipSync,
+      fallback: lipSync,
+    };
+    speech.speak(text, emotion, priority, lipController);
   } else {
-    // Voices not loaded yet - register listener for retry
-    console.warn("No voices available, speech may use default");
+    console.warn("Speech system not initialized yet");
   }
-
-  utterance.onstart = () => {
-    isSpeaking = true;
-    speechBubble.innerText = text;
-    speechBubble.style.display = "block";
-  };
-
-  utterance.onend = () => {
-    isSpeaking = false;
-    speechBubble.style.display = "none";
-    isProcessingQueue = false;
-    processQueue(); // Next in queue
-  };
-
-  utterance.onerror = (e) => {
-    console.warn("Speech error:", e.error);
-    isSpeaking = false;
-    speechBubble.style.display = "none";
-    isProcessingQueue = false;
-    processQueue();
-  };
-
-  speechSynthesis.speak(utterance);
 }
-
-// Ensure voices are loaded (Chrome loads them async)
-if (speechSynthesis.onvoiceschanged !== undefined) {
-  speechSynthesis.onvoiceschanged = () => {
-    console.log("Voices loaded:", speechSynthesis.getVoices().length);
-  };
-}
-
-// Chrome workaround: speech synthesis pauses after ~15s of continuous speech.
-// Periodically resume it to keep it alive.
-setInterval(() => {
-  if (speechSynthesis.speaking) {
-    speechSynthesis.pause();
-    speechSynthesis.resume();
-  }
-}, 10000);
 
 // ── WebSocket Connection to Orchestrator ────────────────────────────────────
 
@@ -280,14 +256,38 @@ function connectWebSocket() {
 function handleServerMessage(data) {
   switch (data.type) {
     case "speak":
-      avatarSpeak(data.message);
+      // Map event to emotion
+      const eventType = data.event || "default";
+      const emotion = eventEmotionMap[eventType] || eventEmotionMap.default;
+      
+      // Determine priority based on urgency
+      let priority = 0;
+      if (emotion === "urgent") priority = 2;
+      else if (emotion === "concerned") priority = 1;
+      
+      // Speak with emotion and appropriate gesture
+      avatarSpeak(data.message, emotion, priority);
       addChatMessage("assistant", data.message);
       logEvent(data.event, data.source);
       updateModuleIndicator(data.source);
+      
+      // Add contextual reactions
+      if (animator) {
+        if (emotion === "urgent") {
+          animator.reactToInteraction("urgent");
+        } else if (emotion === "concerned") {
+          animator.reactToInteraction("concern");
+        } else if (emotion === "happy") {
+          animator.reactToInteraction("positive");
+        }
+      }
       break;
 
     case "welcome":
       addChatMessage("system", data.message);
+      if (animator) {
+        animator.reactToInteraction("greeting");
+      }
       break;
 
     case "status":
@@ -341,6 +341,11 @@ function sendChat() {
   addChatMessage("user", text);
   chatInput.value = "";
   sendChatToServer(text);
+  
+  // Avatar acknowledges user input
+  if (animator) {
+    animator.reactToInteraction("acknowledge");
+  }
 }
 
 // ── Event Log ───────────────────────────────────────────────────────────────
@@ -403,6 +408,7 @@ window.addEventListener("resize", () => {
 // ── Expose Globally (for console testing) ───────────────────────────────────
 
 window.avatarSpeak = avatarSpeak;
+window.getAnimator = () => animator;  // Expose animator for demos
 
 // ── Debug Panel ─────────────────────────────────────────────────────────────
 

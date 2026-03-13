@@ -22,14 +22,22 @@ import json
 import logging
 import os
 import time
+import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +45,21 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("orchestrator")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# Load .env from both avatar_system and workspace root (if available).
+if load_dotenv:
+    _here = Path(__file__).resolve().parent
+    load_dotenv(_here / ".env", override=False)
+    load_dotenv(_here.parent / ".env", override=False)
+
+# Import TTS service
+try:
+    from tts_service import get_tts_service, COQUI_AVAILABLE
+    TTS_AVAILABLE = COQUI_AVAILABLE
+except ImportError:
+    TTS_AVAILABLE = False
+    logger.warning("TTS service not available")
 
 # ── App ──────────────────────────────────────────────────────────────────────
 
@@ -46,22 +69,40 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS: Use specific origins from environment or default to localhost
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+# CORS: Use specific origins from environment or default to common local Vite ports.
+allowed_origins = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174",
+).split(",")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static audio cache directory
+_audio_cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio_cache")
+os.makedirs(_audio_cache_dir, exist_ok=True)
+app.mount("/audio_cache", StaticFiles(directory=_audio_cache_dir), name="audio_cache")
 
 # ── State ────────────────────────────────────────────────────────────────────
 
 connected_avatars: list[WebSocket] = []
 event_history: list[dict] = []
 module_status: dict[str, dict] = {}
+ws_session_ids: dict[int, str] = {}
+chat_sessions: dict[str, list[dict]] = {}
+
+# Chat/LLM configuration
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+CHAT_HISTORY_TURNS = int(os.getenv("CHAT_HISTORY_TURNS", "12"))
+CHAT_HISTORY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat_history")
+os.makedirs(CHAT_HISTORY_DIR, exist_ok=True)
 
 # Debug: latest camera frame (JPEG bytes)
 _debug_frame: bytes = b""
@@ -91,6 +132,26 @@ COOLDOWN_SECONDS = {
 }
 
 # ── Event → Friendly Message Mapping ────────────────────────────────────────
+
+# Event to emotion mapping for avatar animation
+EVENT_EMOTIONS = {
+    "LOW_BLINK_RATE": "concerned",
+    "CONTINUOUS_STARE": "urgent",
+    "LONG_SCREEN_TIME": "concerned",
+    "BAD_POSTURE": "concerned",
+    "HIGH_FATIGUE": "concerned",
+    "LONG_SESSION": "calm",
+    "POOR_AIR_QUALITY": "urgent",
+    "AQI_REPORT": "neutral",
+    "WORK_STATUS": "neutral",
+    "HYDRATE": "happy",
+    "TAKE_BREAK": "happy",
+    "EYE_STRAIN": "concerned",
+    "HIGH_STRESS": "concerned",
+    "HIGH_DISEASE_RISK": "urgent",
+    "EXCESSIVE_YAWNING": "concerned",
+    "CHAT_RESPONSE": "neutral",
+}
 
 EVENT_MESSAGES = {
     "LOW_BLINK_RATE": [
@@ -253,14 +314,31 @@ def get_friendly_message(event_type: str, context: Optional[dict] = None) -> str
             msg = f"Air quality in {city} is {severity if severity else category}. The AQI is {aqi_str}. {recommended_action}"
             return msg
         elif aqi:
-            # Safely format AQI
+            # Build a dynamic fallback even if only AQI/city is available.
             try:
                 numeric_aqi = float(aqi)
-                aqi_str = f"{numeric_aqi:.0f}"
+                aqi_int = int(round(numeric_aqi))
             except (ValueError, TypeError):
-                aqi_str = str(aqi)
-            
-            msg += f" Current AQI: {aqi_str} in {city}."
+                aqi_int = None
+
+            if aqi_int is not None:
+                if aqi_int <= 150:
+                    action = "Sensitive individuals should limit outdoor activity."
+                elif aqi_int <= 200:
+                    action = "Everyone should reduce prolonged outdoor exertion."
+                elif aqi_int <= 300:
+                    action = "Avoid outdoor activities and wear an N95 mask if needed."
+                else:
+                    action = "Stay indoors, keep windows closed, and run air purifiers."
+
+                fallback_category = category or _aqi_category(aqi_int)
+                return (
+                    f"Air quality in {city} is {fallback_category.lower()}. "
+                    f"The AQI is {aqi_int}. {action}"
+                )
+
+            # Last-resort fallback if AQI value is non-numeric.
+            msg += f" Current AQI: {aqi} in {city}."
             if category:
                 msg += f" Category: {category}."
             return msg
@@ -311,6 +389,7 @@ class EventPayload(BaseModel):
 
 class ChatPayload(BaseModel):
     message: str
+    session_id: Optional[str] = None
 
 
 # ── WebSocket: Avatar connection ─────────────────────────────────────────────
@@ -332,6 +411,8 @@ async def broadcast_to_avatars(payload: dict):
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     connected_avatars.append(ws)
+    session_id = f"ws-{uuid.uuid4().hex[:12]}"
+    ws_session_ids[id(ws)] = session_id
     logger.info("Avatar connected. Total: %d", len(connected_avatars))
 
     # Send current status on connect
@@ -339,6 +420,7 @@ async def websocket_endpoint(ws: WebSocket):
         "type": "welcome",
         "message": "Connected to Wellness Orchestrator",
         "modules": list(module_status.keys()),
+        "session_id": session_id,
     })
 
     try:
@@ -348,13 +430,14 @@ async def websocket_endpoint(ws: WebSocket):
             try:
                 msg = json.loads(data)
                 if msg.get("type") == "chat":
-                    await handle_chat_from_avatar(msg.get("message", ""), ws)
+                    await handle_chat_from_avatar(msg.get("message", ""), ws, msg.get("session_id"))
             except json.JSONDecodeError:
                 pass
     except WebSocketDisconnect:
         # Safely remove websocket only if present
         if ws in connected_avatars:
             connected_avatars.remove(ws)
+        ws_session_ids.pop(id(ws), None)
         logger.info("Avatar disconnected. Total: %d", len(connected_avatars))
 
 
@@ -395,12 +478,26 @@ async def receive_event(payload: EventPayload):
 
     logger.info("[%s] %s → %s", payload.source, event_type, message)
 
-    # Broadcast to avatar
+    # Get emotion for avatar animation
+    emotion = EVENT_EMOTIONS.get(event_type, "neutral")
+    
+    # Determine gesture hint based on event type
+    gesture_hint = None
+    if event_type in ["POOR_AIR_QUALITY", "CONTINUOUS_STARE", "HIGH_DISEASE_RISK"]:
+        gesture_hint = "urgent"
+    elif event_type in ["BAD_POSTURE", "EYE_STRAIN", "HIGH_STRESS"]:
+        gesture_hint = "concern"
+    elif event_type in ["TAKE_BREAK", "HYDRATE", "LONG_SESSION"]:
+        gesture_hint = "positive"
+
+    # Broadcast to avatar with emotion and gesture context
     await broadcast_to_avatars({
         "type": "speak",
         "event": event_type,
         "message": message,
         "source": payload.source,
+        "emotion": emotion,
+        "gesture": gesture_hint,
     })
 
     # Push to debug SSE stream
@@ -412,80 +509,249 @@ async def receive_event(payload: EventPayload):
 # ── REST: Chat endpoint ─────────────────────────────────────────────────────
 
 
-async def handle_chat_from_avatar(user_message: str, ws: WebSocket):
+def _record_chat_turn(session_id: str, role: str, text: str, emotion: Optional[str] = None):
+    """Store chat turns in memory and append to session JSONL for continuity."""
+    turn = {
+        "time": datetime.now().isoformat(),
+        "role": role,
+        "text": text,
+    }
+    if emotion:
+        turn["emotion"] = emotion
+
+    turns = chat_sessions.setdefault(session_id, [])
+    turns.append(turn)
+    max_turns = max(CHAT_HISTORY_TURNS * 2, 24)
+    if len(turns) > max_turns:
+        chat_sessions[session_id] = turns[-max_turns:]
+
+    try:
+        file_path = os.path.join(CHAT_HISTORY_DIR, f"{session_id}.jsonl")
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(turn, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.debug("Failed to persist chat turn for session %s", session_id)
+
+
+def _normalize_emotion(value: str) -> str:
+    valid = {"neutral", "happy", "concerned", "calm", "urgent"}
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in valid else "neutral"
+
+
+def _generate_rule_based_response(user_message: str) -> tuple[str, str]:
+    """Rule-based fallback response engine."""
+    msg = user_message.lower().strip()
+    emotion = "neutral"
+
+    if any(w in msg for w in ["how long", "working", "session", "time"]):
+        if module_status.get("workpattern"):
+            return "I've been tracking your session. Check the work pattern monitor for detailed stats.", emotion
+        return "I don't have session data right now. Make sure the work pattern monitor is running.", emotion
+
+    if any(w in msg for w in ["tired", "exhausted", "sleepy"]):
+        return "I can tell you're tired. Take a 5-minute break, stretch, and grab some water. You'll feel better.", "concerned"
+
+    if any(w in msg for w in ["stressed", "anxious", "overwhelmed"]):
+        return "Take a deep breath. In for 4 seconds, hold for 4, out for 4. Repeat 3 times. It really helps.", "concerned"
+
+    if any(w in msg for w in ["frustrated", "stuck", "bug", "error"]):
+        return "Debugging is tough. Sometimes stepping away for 2 minutes gives you a fresh perspective. Try it.", "calm"
+
+    if any(w in msg for w in ["bored", "unmotivated"]):
+        return "Try switching tasks for a bit, or set a small achievable goal. Momentum builds motivation.", "happy"
+
+    if any(w in msg for w in ["eyes", "blink", "strain"]):
+        return "Your eyes need regular breaks. Try the 20-20-20 rule: every 20 minutes, look at something 20 feet away for 20 seconds.", "calm"
+
+    if any(w in msg for w in ["posture", "back", "sitting"]):
+        return "Good posture tip: feet flat, back straight, screen at eye level. Roll your shoulders back right now.", "concerned"
+
+    if any(w in msg for w in ["break", "rest", "pause"]):
+        return "Great idea! Stand up, stretch your arms above your head, and walk around for 2 minutes.", "happy"
+
+    if any(w in msg for w in ["hello", "hi", "hey"]):
+        return "Hey! I'm your wellness companion. I'm watching out for your health while you code.", "happy"
+
+    if any(w in msg for w in ["thanks", "thank you"]):
+        return "You're welcome! I'm here whenever you need me.", "happy"
+
+    if any(w in msg for w in ["who are you", "what are you"]):
+        return "I'm your AI wellness companion. I monitor your health while you work and remind you to take care of yourself.", emotion
+
+    return "I'm here to help you stay healthy while coding. Ask me about breaks, posture, eye care, or just chat.", emotion
+
+
+async def _generate_gemini_response(user_message: str, session_id: str) -> tuple[str, str]:
+    """Generate contextual chat response using Gemini API."""
+    recent_turns = chat_sessions.get(session_id, [])[-CHAT_HISTORY_TURNS:]
+    recent_events = event_history[-5:]
+
+    history_lines = []
+    for t in recent_turns:
+        role = t.get("role", "assistant")
+        text = t.get("text", "")
+        if text:
+            history_lines.append(f"{role}: {text}")
+
+    event_lines = []
+    for e in recent_events:
+        event_lines.append(
+            f"{e.get('event', 'EVENT')} from {e.get('source', 'module')}: {e.get('message', '')}"
+        )
+
+    prompt = (
+        "You are a friendly AI wellness avatar assistant. "
+        "Respond naturally and conversationally, with short helpful messages suitable for speech synthesis. "
+        "Use conversation history to maintain context and avoid repetitive responses. "
+        "If user asks for health/wellness help, provide practical and safe suggestions. "
+        "Output strictly JSON with keys: response (string), emotion (one of neutral|happy|concerned|calm|urgent).\n\n"
+        f"Session ID: {session_id}\n"
+        f"Module status: {json.dumps(module_status, ensure_ascii=False)}\n"
+        f"Recent wellness events:\n" + "\n".join(event_lines) + "\n\n"
+        f"Conversation history:\n" + "\n".join(history_lines) + "\n\n"
+        f"User: {user_message}"
+    )
+
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.8,
+            "topP": 0.9,
+            "maxOutputTokens": 220,
+        },
+    }
+
+    models_to_try = []
+    for m in [
+        GEMINI_MODEL,
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro-latest",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+    ]:
+        model_name = (m or "").strip()
+        if model_name and model_name not in models_to_try:
+            models_to_try.append(model_name)
+
+    data = None
+    async with httpx.AsyncClient(timeout=15) as client:
+        for model_name in models_to_try:
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model_name}:generateContent?key={GEMINI_API_KEY}"
+            )
+            resp = await client.post(url, json=payload)
+
+            if resp.status_code == 404:
+                logger.info("Gemini model unavailable, trying next: %s", model_name)
+                continue
+
+            resp.raise_for_status()
+            data = resp.json()
+            break
+
+    if data is None:
+        raise ValueError("No available Gemini model responded successfully")
+
+    text = (
+        data.get("candidates", [{}])[0]
+        .get("content", {})
+        .get("parts", [{}])[0]
+        .get("text", "")
+        .strip()
+    )
+
+    if not text:
+        raise ValueError("Gemini returned empty content")
+
+    try:
+        llm_json = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("Gemini response is not valid JSON")
+        llm_json = json.loads(text[start:end + 1])
+
+    response_text = str(llm_json.get("response", "")).strip()
+    response_emotion = _normalize_emotion(str(llm_json.get("emotion", "neutral")))
+
+    if not response_text:
+        raise ValueError("Gemini JSON missing response text")
+
+    return response_text, response_emotion
+
+
+async def handle_chat_from_avatar(user_message: str, ws: WebSocket, session_id: Optional[str] = None):
     """Handle chat input from the avatar UI."""
-    response = generate_chat_response(user_message)
+    resolved_session_id = session_id or ws_session_ids.get(id(ws), f"ws-{uuid.uuid4().hex[:12]}")
+    ws_session_ids[id(ws)] = resolved_session_id
+
+    response, emotion = await generate_chat_response_with_emotion(user_message, resolved_session_id)
+
     await ws.send_json({
         "type": "speak",
         "event": "CHAT_RESPONSE",
         "message": response,
         "source": "ai",
+        "emotion": emotion,
+        "session_id": resolved_session_id,
     })
 
 
 @app.post("/api/chat")
 async def chat_endpoint(payload: ChatPayload):
     """REST endpoint for chat — also broadcasts to avatar."""
-    response = generate_chat_response(payload.message)
+    session_id = payload.session_id or "rest-default"
+    response, emotion = await generate_chat_response_with_emotion(payload.message, session_id)
 
     await broadcast_to_avatars({
         "type": "speak",
         "event": "CHAT_RESPONSE",
         "message": response,
         "source": "ai",
+        "emotion": emotion,
+        "session_id": session_id,
     })
 
-    return {"response": response}
+    return {"response": response, "emotion": emotion, "session_id": session_id}
+
+
+async def generate_chat_response_with_emotion(user_message: str, session_id: str = "default") -> tuple[str, str]:
+    """
+    Generate chat response with emotion using Gemini if configured,
+    with robust fallback to rule-based responses.
+    Returns (response_text, emotion)
+    """
+    clean_message = (user_message or "").strip()
+    if not clean_message:
+        return "Tell me what is on your mind and I will help.", "neutral"
+
+    _record_chat_turn(session_id, "user", clean_message)
+
+    if GEMINI_API_KEY:
+        try:
+            response, emotion = await _generate_gemini_response(clean_message, session_id)
+            _record_chat_turn(session_id, "assistant", response, emotion)
+            return response, emotion
+        except Exception as e:
+            logger.warning("Gemini chat failed for session %s: %s", session_id, e.__class__.__name__)
+
+    response, emotion = _generate_rule_based_response(clean_message)
+    _record_chat_turn(session_id, "assistant", response, emotion)
+    return response, emotion
 
 
 def generate_chat_response(user_message: str) -> str:
-    """
-    Simple rule-based chat for now.
-    Replace with LLM integration (OpenAI, local model, etc.) for production.
-    """
-    msg = user_message.lower().strip()
-
-    # Status queries
-    if any(w in msg for w in ["how long", "working", "session", "time"]):
-        if module_status.get("workpattern"):
-            return "I've been tracking your session. Check the work pattern monitor for detailed stats."
-        return "I don't have session data right now. Make sure the work pattern monitor is running."
-
-    # Emotional support
-    if any(w in msg for w in ["tired", "exhausted", "sleepy"]):
-        return "I can tell you're tired. Take a 5-minute break, stretch, and grab some water. You'll feel better."
-
-    if any(w in msg for w in ["stressed", "anxious", "overwhelmed"]):
-        return "Take a deep breath. In for 4 seconds, hold for 4, out for 4. Repeat 3 times. It really helps."
-
-    if any(w in msg for w in ["frustrated", "stuck", "bug", "error"]):
-        return "Debugging is tough. Sometimes stepping away for 2 minutes gives you a fresh perspective. Try it."
-
-    if any(w in msg for w in ["bored", "unmotivated"]):
-        return "Try switching tasks for a bit, or set a small achievable goal. Momentum builds motivation."
-
-    # Health queries
-    if any(w in msg for w in ["eyes", "blink", "strain"]):
-        return "Your eyes need regular breaks. Try the 20-20-20 rule: every 20 minutes, look at something 20 feet away for 20 seconds."
-
-    if any(w in msg for w in ["posture", "back", "sitting"]):
-        return "Good posture tip: feet flat, back straight, screen at eye level. Roll your shoulders back right now."
-
-    if any(w in msg for w in ["break", "rest", "pause"]):
-        return "Great idea! Stand up, stretch your arms above your head, and walk around for 2 minutes."
-
-    # Greetings
-    if any(w in msg for w in ["hello", "hi", "hey"]):
-        return "Hey! I'm your wellness companion. I'm watching out for your health while you code."
-
-    if any(w in msg for w in ["thanks", "thank you"]):
-        return "You're welcome! I'm here whenever you need me."
-
-    if any(w in msg for w in ["who are you", "what are you"]):
-        return "I'm your AI wellness companion. I monitor your health while you work and remind you to take care of yourself."
-
-    # Default
-    return "I'm here to help you stay healthy while coding. Ask me about breaks, posture, eye care, or just chat."
+    """Legacy wrapper for backward compatibility."""
+    response, _ = _generate_rule_based_response(user_message)
+    return response
 
 
 # ── REST: Status dashboard ───────────────────────────────────────────────────
@@ -507,6 +773,52 @@ async def system_status():
 async def event_history_endpoint():
     """Return full event history."""
     return {"events": event_history}
+
+
+# ── Advanced TTS Endpoint ───────────────────────────────────────────────────
+
+
+class TTSRequest(BaseModel):
+    text: str
+    emotion: str = "neutral"
+
+
+@app.post("/api/tts/generate")
+async def generate_tts(request: TTSRequest):
+    """
+    Generate speech audio with viseme data for lip sync.
+    
+    Returns:
+        {
+            "audio_url": "/audio_cache/abc123.wav",
+            "visemes": [{start, end, value}, ...],
+            "duration": 2.5,
+            "text": "...",
+            "emotion": "..."
+        }
+    """
+    if not TTS_AVAILABLE:
+        return {
+            "error": "TTS service not available",
+            "message": "Install with: pip install TTS"
+        }
+    
+    try:
+        tts_service = get_tts_service()
+        result = tts_service.generate_speech_with_visemes(
+            text=request.text,
+            emotion=request.emotion
+        )
+        
+        if result:
+            logger.info(f"🎤 TTS generated: '{request.text[:50]}...' ({result['duration']:.2f}s)")
+            return result
+        else:
+            return {"error": "TTS generation failed"}
+            
+    except Exception as e:
+        logger.error(f"TTS endpoint error: {e}")
+        return {"error": str(e)}
 
 
 # ── Debug endpoints (video + event stream) ──────────────────────────────────
@@ -741,8 +1053,9 @@ async def _poll_aqi():
                         geo = geo_resp.json()
                         lat, lon = geo.get("lat"), geo.get("lon")
                         if lat and lon:
+                            waqi_token_geo = os.getenv("WAQI_TOKEN", "demo")
                             resp = await client.get(
-                                f"https://api.waqi.info/feed/geo:{lat};{lon}/?token=demo"
+                                f"https://api.waqi.info/feed/geo:{lat};{lon}/?token={waqi_token_geo}"
                             )
                             if resp.status_code == 200:
                                 data = resp.json()
@@ -760,10 +1073,26 @@ async def _poll_aqi():
                 "city": city_name,
             })
             if int(aqi_val) > 100:
+                if int(aqi_val) <= 150:
+                    severity = "moderately poor"
+                    recommended_action = "Sensitive individuals should limit outdoor activities"
+                elif int(aqi_val) <= 200:
+                    severity = "unhealthy"
+                    recommended_action = "Everyone should reduce prolonged outdoor exertion"
+                elif int(aqi_val) <= 300:
+                    severity = "very unhealthy"
+                    recommended_action = "Avoid outdoor activities and wear N95 masks if going outside"
+                else:
+                    severity = "hazardous"
+                    recommended_action = "Stay indoors, seal windows, and run air purifiers"
+
                 await _internal_push("POOR_AIR_QUALITY", "air_quality", {
                     "aqi": int(aqi_val),
                     "city": city_name,
+                    "category": category,
                     "risk_level": category,
+                    "severity": severity,
+                    "recommended_action": recommended_action,
                 })
         else:
             logger.warning("AQI: Could not fetch data for %s from any source", AQI_CITY)
