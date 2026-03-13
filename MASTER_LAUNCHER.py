@@ -41,36 +41,10 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-
-def resolve_project_python() -> str:
-    """Prefer the project .venv for app modules; fallback to current Python."""
-    env_override = os.getenv("PROJECT_PYTHON")
-    if env_override and os.path.exists(env_override):
-        return env_override
-    candidate = os.path.join(BASE_DIR, ".venv", "Scripts", "python.exe")
-    if os.path.exists(candidate):
-        return candidate
-    return sys.executable
-
-
-def resolve_orchestrator_python() -> str:
-    """Prefer isolated .venv311 for orchestrator if present; fallback to current Python."""
-    env_override = os.getenv("ORCHESTRATOR_PYTHON")
-    if env_override and os.path.exists(env_override):
-        return env_override
-    candidate = os.path.join(BASE_DIR, ".venv311", "Scripts", "python.exe")
-    if os.path.exists(candidate):
-        return candidate
-    return sys.executable
-
-
-ORCHESTRATOR_PYTHON = resolve_orchestrator_python()
-PROJECT_PYTHON = resolve_project_python()
-
 MODULES = {
     "orchestrator": {
         "name": "Orchestrator",
-        "cmd": [ORCHESTRATOR_PYTHON, "orchestrator.py"],
+        "cmd": [sys.executable, "orchestrator.py"],
         "cwd": os.path.join(BASE_DIR, "avatar_system"),
         "port": 8765,
         "required": True,
@@ -86,7 +60,7 @@ MODULES = {
     },
     "eye": {
         "name": "Eye Care",
-        "cmd": [PROJECT_PYTHON, "main.py", "--headless"],
+        "cmd": [sys.executable, "main.py", "--headless"],
         "cwd": os.path.join(BASE_DIR, "Eye_care"),
         "port": None,
         "required": False,
@@ -94,23 +68,23 @@ MODULES = {
     },
     "posture": {
         "name": "Posture Detection",
-        "cmd": [PROJECT_PYTHON, "posture_detection.py"],
+        "cmd": [sys.executable, "posture_detection.py"],
         "cwd": os.path.join(BASE_DIR, "posture_detection"),
         "port": None,
         "required": False,
         "wait": 1,
     },
     "workpattern": {
-        "name": "Workpattern Monitor + API",
-        "cmd": [PROJECT_PYTHON, "main.py"],
+        "name": "Workpattern Monitor",
+        "cmd": [sys.executable, "integrated_monitor.py"],
         "cwd": os.path.join(BASE_DIR, "workpattern"),
         "port": 8001,
         "required": False,
-        "wait": 2,
+        "wait": 1,
     },
     "airquality": {
         "name": "Air Quality",
-        "cmd": [PROJECT_PYTHON, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8002"],
+        "cmd": [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8002"],
         "cwd": os.path.join(BASE_DIR, "Air_quality_risk_pred"),
         "port": 8002,
         "required": False,
@@ -118,7 +92,7 @@ MODULES = {
     },
     "vijitha": {
         "name": "Vijitha Health AI",
-        "cmd": [PROJECT_PYTHON, "main.py"],
+        "cmd": [sys.executable, "main.py"],
         "cwd": os.path.join(BASE_DIR, "vijitha"),
         "port": 8000,
         "required": False,
@@ -135,35 +109,18 @@ processes = []
 def start_process(module_id, config, debug_mode=False):
     """Start a subprocess and track it."""
     name = config["name"]
-    cmd = list(config["cmd"])
-
-    # In debug mode, allow Eye Care to show the webcam preview instead of forcing headless mode.
-    if module_id == "eye" and debug_mode:
-        cmd = [arg for arg in cmd if arg != "--headless"]
     
-    # Check if the working directory and the main target exist.
-    if not os.path.exists(config["cwd"]):
-        print(f"  ⚠️  {name}: Directory not found, skipping")
-        return None
-
-    main_target = None
-    if len(cmd) > 1:
-        if cmd[1] == "-m" and len(cmd) > 3:
-            module_name = cmd[2]
-            if module_name == "uvicorn":
-                main_target = cmd[3].split(":")[0].replace(".", os.sep) + ".py"
-            else:
-                main_target = module_name.replace(".", os.sep) + ".py"
-        elif cmd[0].lower().startswith("npm"):
-            main_target = None
+    # Check if module exists
+    main_file = config["cmd"][1] if len(config["cmd"]) > 1 else config["cmd"][0]
+    if not os.path.exists(os.path.join(config["cwd"], main_file.split()[0])):
+        if module_id == "avatar":
+            # For avatar, check if frontend directory exists
+            if not os.path.exists(config["cwd"]):
+                print(f"  ⚠️  {name}: Directory not found, skipping")
+                return None
         else:
-            main_target = cmd[1].split()[0]
-    elif cmd:
-        main_target = cmd[0]
-
-    if main_target and not os.path.exists(os.path.join(config["cwd"], main_target)):
-        print(f"  ⚠️  {name}: Not found, skipping")
-        return None
+            print(f"  ⚠️  {name}: Not found, skipping")
+            return None
     
     print(f"  🚀 Starting {name}...", end=" ")
     
@@ -185,7 +142,7 @@ def start_process(module_id, config, debug_mode=False):
             start_new_session = True
         
         proc = subprocess.Popen(
-            cmd,
+            config["cmd"],
             cwd=config["cwd"],
             shell=False,
             stdout=stdout,
@@ -275,8 +232,6 @@ def print_banner(debug_mode=False):
     print("=" * 60)
     print(f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"  Mode: {'DEBUG (verbose)' if debug_mode else 'NORMAL (quiet)'}")
-    print(f"  Project Python: {PROJECT_PYTHON}")
-    print(f"  Orchestrator Python: {ORCHESTRATOR_PYTHON}")
     print("=" * 60 + "\n")
 
 
@@ -292,7 +247,7 @@ def print_summary(selected_modules, debug_mode=False):
         active_ports.append(("Orchestrator API", "http://localhost:8765"))
     
     if "avatar" in selected_modules:
-        active_ports.append(("Avatar UI", "http://localhost:5173 (or next Vite port)"))
+        active_ports.append(("Avatar UI", "http://localhost:5173"))
     
     if "airquality" in selected_modules:
         active_ports.append(("Air Quality API", "http://localhost:8002/api/docs"))
@@ -372,7 +327,7 @@ Module Names:
     else:
         # Default: orchestrator + avatar only
         selected_modules = {"orchestrator", "avatar"}
-
+    
     # Print startup banner
     print_banner(debug_mode=args.debug)
     

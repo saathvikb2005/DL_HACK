@@ -10,7 +10,6 @@ __pycache__/
 .Python
 venv/
 .venv/
-.venv311/
 env/
 ENV/
 *.egg-info/

@@ -41,14 +41,7 @@ async def startup_event():
     print("\n" + "="*60)
     print("🚀 Starting Work Pattern Analysis API")
     print("="*60)
-    try:
-        from integrated_monitor import get_monitor
-        monitor = get_monitor()
-        monitor.start_background()
-        print("✓ Integrated monitor started inside API process")
-    except Exception as e:
-        print(f"⚠ Could not start integrated monitor: {e}")
-    print("✓ API ready")
+    print("✓ API ready - waiting for integrated_monitor.py")
     print("="*60 + "\n")
 
 @app.get("/")
