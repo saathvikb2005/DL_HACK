@@ -1,0 +1,4 @@
+{"time": "2026-03-12T23:37:02.925841", "role": "user", "text": "Hi, I am Saathvik and I am building AQI + avatar integration"}
+{"time": "2026-03-12T23:37:03.840865", "role": "assistant", "text": "Hey! I'm your wellness companion. I'm watching out for your health while you code.", "emotion": "happy"}
+{"time": "2026-03-12T23:37:04.947322", "role": "user", "text": "Can you remind me what I just told you?"}
+{"time": "2026-03-12T23:37:06.040468", "role": "assistant", "text": "I'm here to help you stay healthy while coding. Ask me about breaks, posture, eye care, or just chat.", "emotion": "neutral"}

@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "soundFile": "D:\\DL_HACK\\avatar_system\\audio_cache\\130cae585ce5.wav",
+    "duration": 4.05
+  },
+  "mouthCues": [
+    { "start": 0.00, "end": 0.04, "value": "X" },
+    { "start": 0.04, "end": 0.16, "value": "C" },
+    { "start": 0.16, "end": 0.37, "value": "E" },
+    { "start": 0.37, "end": 0.44, "value": "F" },
+    { "start": 0.44, "end": 1.14, "value": "X" },
+    { "start": 1.14, "end": 1.47, "value": "B" },
+    { "start": 1.47, "end": 1.54, "value": "C" },
+    { "start": 1.54, "end": 1.68, "value": "A" },
+    { "start": 1.68, "end": 1.76, "value": "B" },
+    { "start": 1.76, "end": 1.90, "value": "G" },
+    { "start": 1.90, "end": 2.04, "value": "C" },
+    { "start": 2.04, "end": 2.39, "value": "B" },
+    { "start": 2.39, "end": 2.47, "value": "A" },
+    { "start": 2.47, "end": 2.89, "value": "B" },
+    { "start": 2.89, "end": 3.10, "value": "C" },
+    { "start": 3.10, "end": 3.45, "value": "B" },
+    { "start": 3.45, "end": 4.05, "value": "X" }
+  ]
+}

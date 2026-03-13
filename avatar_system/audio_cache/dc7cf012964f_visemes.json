@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "soundFile": "D:\\DL_HACK\\avatar_system\\audio_cache\\dc7cf012964f.wav",
+    "duration": 4.23
+  },
+  "mouthCues": [
+    { "start": 0.00, "end": 0.04, "value": "X" },
+    { "start": 0.04, "end": 0.17, "value": "C" },
+    { "start": 0.17, "end": 0.31, "value": "E" },
+    { "start": 0.31, "end": 0.45, "value": "B" },
+    { "start": 0.45, "end": 0.66, "value": "C" },
+    { "start": 0.66, "end": 0.80, "value": "G" },
+    { "start": 0.80, "end": 0.87, "value": "C" },
+    { "start": 0.87, "end": 1.01, "value": "B" },
+    { "start": 1.01, "end": 1.66, "value": "X" },
+    { "start": 1.66, "end": 1.79, "value": "C" },
+    { "start": 1.79, "end": 2.00, "value": "E" },
+    { "start": 2.00, "end": 2.07, "value": "F" },
+    { "start": 2.07, "end": 2.21, "value": "C" },
+    { "start": 2.21, "end": 2.28, "value": "H" },
+    { "start": 2.28, "end": 2.35, "value": "C" },
+    { "start": 2.35, "end": 2.56, "value": "B" },
+    { "start": 2.56, "end": 2.64, "value": "A" },
+    { "start": 2.64, "end": 2.99, "value": "C" },
+    { "start": 2.99, "end": 3.62, "value": "B" },
+    { "start": 3.62, "end": 4.23, "value": "X" }
+  ]
+}

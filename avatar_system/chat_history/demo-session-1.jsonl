@@ -1,0 +1,4 @@
+{"time": "2026-03-12T23:33:30.867706", "role": "user", "text": "Hey avatar, remember I am working on AQI alerts"}
+{"time": "2026-03-12T23:33:30.869785", "role": "assistant", "text": "I don't have session data right now. Make sure the work pattern monitor is running.", "emotion": "neutral"}
+{"time": "2026-03-12T23:33:31.468156", "role": "user", "text": "What did I just tell you?"}
+{"time": "2026-03-12T23:33:31.469103", "role": "assistant", "text": "I'm here to help you stay healthy while coding. Ask me about breaks, posture, eye care, or just chat.", "emotion": "neutral"}
